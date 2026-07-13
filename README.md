@@ -29,6 +29,35 @@ Targets **MySQL 8.0**.
    mysql -u appuser -p moviedb < movie-data.sql
    ```
 
+## Backend
+
+Built with **FastAPI** (JSON API), **SQLAlchemy Core** (raw SQL, connection pooling) over
+**PyMySQL**, and **pydantic-settings** for config, served by **Uvicorn**.
+
+1. **Install dependencies:**
+   ```bash
+   cd backend
+   pip install -e .
+   ```
+
+2. **Configure the database connection.** Copy `.env.example` to `.env` and point it at your
+   local MySQL instance from the setup above:
+   ```bash
+   cp .env.example .env
+   ```
+   ```
+   DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
+   ```
+
+3. **Run the server** (always from `backend/`, never by executing `main.py` directly):
+   ```bash
+   uvicorn app.main:app --reload --port 8000
+   ```
+
+Interactive API docs (auto-generated from the Pydantic schemas) are at
+`http://localhost:8000/docs` once the server is running — useful for exercising each endpoint
+before the frontend exists.
+
 ## Status
 
 Work in progress.
