@@ -49,15 +49,56 @@ Built with **FastAPI** (JSON API), **SQLAlchemy Core** (raw SQL, connection pool
    DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
    ```
 
-3. **Run the server** (always from `backend/`, never by executing `main.py` directly):
+Run steps are in **Running Locally** below.
+
+## Frontend
+
+Built with **React + TypeScript** (Vite) as a separate single-page app, using
+**react-router-dom** for client-side routing. Three pages — movie list, single movie, single
+star — call the FastAPI JSON API and cross-link each other.
+
+1. **Install dependencies:**
    ```bash
-   uvicorn app.main:app --reload --port 8000
+   cd frontend
+   npm install
    ```
 
+Run steps are in **Running Locally** below.
+
+## Running Locally
+
+With the database set up (see **Database Setup** above), run both servers in separate terminals.
+
+**Backend** (from `backend/`, after installing dependencies and configuring `.env` per the
+**Backend** section above):
+```bash
+uvicorn app.main:app --reload --port 8000
+```
 Interactive API docs (auto-generated from the Pydantic schemas) are at
-`http://localhost:8000/docs` once the server is running — useful for exercising each endpoint
-before the frontend exists.
+`http://localhost:8000/docs` — useful for exercising each endpoint directly.
+
+**Frontend** (from `frontend/`, after `npm install`):
+```bash
+npm run dev
+```
+App runs at `http://localhost:5173` and expects the backend at `http://localhost:8000`; CORS is
+already configured in `main.py` for the Vite dev server's origin.
+
+## Milestones
+
+- [x] `createtable.sql` runs cleanly against a fresh MySQL 8 database
+- [x] Data loads without foreign-key errors
+- [x] Movie list shows the top 20 movies by rating, correctly sorted, each row with
+      title/year/director/3 genres/3 stars/rating
+- [x] Every movie title and star name is a working link
+- [x] Single movie page shows complete (untruncated) genre and star lists
+- [x] Single star page shows name, birth year (or N/A), and every movie, each linked
+- [x] Navigation works in both directions between all three page types; "back to list" works from
+      any detail page
+- [x] README documents database setup, backend run steps, and frontend run steps
+- [ ] Deployed to a server (e.g. AWS EC2)
 
 ## Status
 
-Work in progress.
+Core read-only flow (movie list / single movie / single star) working end-to-end locally.
+Deployment not yet done.
