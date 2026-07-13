@@ -42,7 +42,7 @@ def get_movie_by_id(conn: Connection, movie_id: str) -> dict | None:
         "rating": rating_row["rating"] if rating_row else None,
     }
 
-def get_top_movies(conn: Connection, limit: int = 10) -> list[dict]:
+def get_top_movies(conn: Connection, limit: int = 20) -> list[dict]:
     """ top 20 movies by rating, first 3 genres/stars each """
     top_rows = conn.execute(
         text("""
