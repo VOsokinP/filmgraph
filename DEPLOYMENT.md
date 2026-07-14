@@ -116,12 +116,20 @@ You should see `127.0.0.1:3306` (not `0.0.0.0:3306`) next to `mysqld`. Combined 
 closed at the security group (step 1), this means the database is unreachable from outside the
 instance even if something else is misconfigured — two independent layers, not one.
 
-Load the schema and seed data (get the files onto the instance via `git clone`, see step 5, or
-`scp`):
+`createtable.sql` comes down with the repo itself (`git clone`, step 5) — but `movie-data.sql` does
+**not**, since it's excluded from the repo and distributed as a GitHub Release asset instead. Pull it
+directly onto the instance once step 5's clone gives you a `filmgraph/` directory to put it in:
+
+```bash
+wget -O backend/db/movie-data.sql \
+  https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
+```
+
+Then load both files:
 
 ```bash
 mysql -u appuser -p moviedb < backend/db/createtable.sql
-mysql -u appuser -p moviedb < movie-data.sql
+mysql -u appuser -p moviedb < backend/db/movie-data.sql
 ```
 
 **If `movie-data.sql` includes tables outside this schema** (e.g. `creditcards`/`customers`/`sales`
@@ -132,7 +140,7 @@ command exits looking like it worked. Rather than editing the dump, pull just th
 inserts out and pipe them in directly:
 
 ```bash
-grep -i "^INSERT INTO ratings" movie-data.sql | mysql -u appuser -p moviedb
+grep -i "^INSERT INTO ratings" backend/db/movie-data.sql | mysql -u appuser -p moviedb
 ```
 
 Verify with `SELECT COUNT(*) FROM ratings;` after any bulk load — a clean exit code doesn't
