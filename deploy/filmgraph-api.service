@@ -1,0 +1,17 @@
+[Unit]
+Description=FilmGraph API
+After=network.target mysql.service
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/filmgraph/backend
+EnvironmentFile=/home/ubuntu/filmgraph/backend/.env
+ExecStart=/home/ubuntu/filmgraph/backend/.venv/bin/gunicorn app.main:app \
+    -k uvicorn.workers.UvicornWorker \
+    --workers 2 \
+    --bind 127.0.0.1:8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
