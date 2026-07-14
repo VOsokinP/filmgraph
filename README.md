@@ -84,6 +84,42 @@ npm run dev
 App runs at `http://localhost:5173` and expects the backend at `http://localhost:8000`; CORS is
 already configured in `main.py` for the Vite dev server's origin.
 
+## Deployment
+
+Deployed to a single AWS EC2 instance: `t3.micro`, Ubuntu Server 24.04 LTS (free-tier eligible).
+Full step-by-step setup instructions (EC2 launch through Nginx/HTTPS config) are in
+[`DEPLOYMENT.md`](./DEPLOYMENT.md) — this section is a quick reference, not a from-scratch guide.
+
+- **`deploy/filmgraph-api.service`** (systemd) — runs the backend as a managed service (Gunicorn
+  managing Uvicorn workers), reading `DATABASE_URL` from `backend/.env` on the instance (not
+  committed). Restarts automatically on crash or reboot.
+- **`deploy/nginx.conf`** — the single public entry point. Serves the built frontend's static files
+  from `frontend/dist/`, reverse-proxies `/api/...` to the backend on `127.0.0.1:8000`, and falls
+  back to `index.html` for client-side routes so direct links like `/movies/mv1` don't 404.
+
+**Redeploying after a change:**
+```bash
+ssh -i your-key.pem ubuntu@<elastic-ip>
+cd filmgraph
+git pull
+```
+If backend dependencies changed:
+```bash
+cd backend && source .venv/bin/activate && pip install -e . && cd ..
+sudo systemctl restart filmgraph-api
+```
+If only backend code changed (no new dependencies), the restart alone is enough.
+
+If frontend code changed:
+```bash
+cd frontend && npm ci && npm run build && cd ..
+```
+No restart needed — Nginx serves whatever's currently in `dist/` on the next request.
+
+**Live demo:** not running continuously — the instance is spun up on demand rather than left on
+between sessions. A free domain and more persistent hosting are planned; until then, available on
+request for a live walkthrough.
+
 ## Milestones
 
 - [x] `createtable.sql` runs cleanly against a fresh MySQL 8 database
@@ -96,9 +132,10 @@ already configured in `main.py` for the Vite dev server's origin.
 - [x] Navigation works in both directions between all three page types; "back to list" works from
       any detail page
 - [x] README documents database setup, backend run steps, and frontend run steps
-- [ ] Deployed to a server (e.g. AWS EC2)
+- [x] Deployed to a server (e.g. AWS EC2)
 
 ## Status
 
-Core read-only flow (movie list / single movie / single star) working end-to-end locally.
-Deployment not yet done.
+Core read-only flow (movie list / single movie / single star) working end-to-end, deployed to AWS
+EC2 behind Nginx and systemd. Instance is run on demand rather than kept up continuously; a domain
+is planned for a persistent live link.
