@@ -9,8 +9,8 @@ with a FastAPI (Python) JSON API backend, a React + TypeScript frontend, and a M
 Targets **MySQL 8.0**.
 
 1. **Get the seed data.** `movie-data.sql` isn't checked into this repo (too large for git).
-   Download it from Google Drive and place it at the repo root:
-   https://drive.google.com/file/d/1He6C_5d0D1GumfA1Xl2_96uMQoZ2bJ62/view?usp=sharing
+   Download it from GitHub Releases and place it at `backend/db/movie-data.sql`:
+   https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
 
 2. **Create the database and app user:**
    ```sql
@@ -26,7 +26,7 @@ Targets **MySQL 8.0**.
 
 4. **Load the seed data:**
    ```bash
-   mysql -u appuser -p moviedb < movie-data.sql
+   mysql -u appuser -p moviedb < backend/db/movie-data.sql
    ```
 
 ## Backend
