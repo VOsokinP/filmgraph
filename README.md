@@ -19,36 +19,35 @@ Targets **MySQL 8.0**.
    GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
    ```
 
-3. **Load the schema:**
-   ```bash
-   mysql -u appuser -p moviedb < backend/db/createtable.sql
-   ```
-
-4. **Load the seed data:**
-   ```bash
-   mysql -u appuser -p moviedb < backend/db/movie-data.sql
-   ```
-
-## Backend
-
-Built with **FastAPI** (JSON API), **SQLAlchemy Core** (raw SQL, connection pooling) over
-**PyMySQL**, and **pydantic-settings** for config, served by **Uvicorn**.
-
-1. **Install dependencies:**
+3. **Install backend dependencies and configure the connection.** The schema is applied via
+   Alembic, which needs the app's own config to find the database — so this has to happen before
+   the schema step below:
    ```bash
    cd backend
    pip install -e .
-   ```
-
-2. **Configure the database connection.** Copy `.env.example` to `.env` and point it at your
-   local MySQL instance from the setup above:
-   ```bash
    cp .env.example .env
    ```
    ```
    DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
    ```
 
+4. **Apply the schema** (from `backend/`):
+   ```bash
+   alembic upgrade head
+   ```
+
+5. **Load the seed data** (from `backend/`):
+   ```bash
+   mysql -u appuser -p moviedb < db/movie-data.sql
+   ```
+
+## Backend
+
+Built with **FastAPI** (JSON API), **SQLAlchemy Core** (raw SQL, connection pooling) over
+**PyMySQL**, **Alembic** for schema migrations, and **pydantic-settings** for config, served by
+**Uvicorn**.
+
+Dependencies, `.env` configuration, and the schema are set up as part of **Database Setup** above.
 Run steps are in **Running Locally** below.
 
 ## Frontend
@@ -69,8 +68,8 @@ Run steps are in **Running Locally** below.
 
 With the database set up (see **Database Setup** above), run both servers in separate terminals.
 
-**Backend** (from `backend/`, after installing dependencies and configuring `.env` per the
-**Backend** section above):
+**Backend** (from `backend/`, after installing dependencies, configuring `.env`, and applying the
+schema per **Database Setup** above):
 ```bash
 uvicorn app.main:app --reload --port 8000
 ```
@@ -122,7 +121,7 @@ request for a live walkthrough.
 
 ## Milestones
 
-- [x] `createtable.sql` runs cleanly against a fresh MySQL 8 database
+- [x] `alembic upgrade head` builds the full schema cleanly against a fresh MySQL 8 database
 - [x] Data loads without foreign-key errors
 - [x] Movie list shows the top 20 movies by rating, correctly sorted, each row with
       title/year/director/3 genres/3 stars/rating

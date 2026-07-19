@@ -116,37 +116,10 @@ You should see `127.0.0.1:3306` (not `0.0.0.0:3306`) next to `mysqld`. Combined 
 closed at the security group (step 1), this means the database is unreachable from outside the
 instance even if something else is misconfigured — two independent layers, not one.
 
-`createtable.sql` comes down with the repo itself (`git clone`, step 5) — but `movie-data.sql` does
-**not**, since it's excluded from the repo and distributed as a GitHub Release asset instead. Pull it
-directly onto the instance once step 5's clone gives you a `filmgraph/` directory to put it in:
+Schema and seed data are applied in step 5, once the repo — and its Alembic migrations — are
+actually on the instance. Nothing to load here yet.
 
-```bash
-wget -O backend/db/movie-data.sql \
-  https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
-```
-
-Then load both files:
-
-```bash
-mysql -u appuser -p moviedb < backend/db/createtable.sql
-mysql -u appuser -p moviedb < backend/db/movie-data.sql
-```
-
-**If `movie-data.sql` includes tables outside this schema** (e.g. `creditcards`/`customers`/`sales`
-from the original dataset this was sourced from — not part of FilmGraph's schema), `mysql` aborts
-the entire script on the first error when run without `--force`, so an unsupported-table insert
-ahead of `ratings` in the file silently prevents `ratings` from loading at all, even though the
-command exits looking like it worked. Rather than editing the dump, pull just the missing table's
-inserts out and pipe them in directly:
-
-```bash
-grep -i "^INSERT INTO ratings" backend/db/movie-data.sql | mysql -u appuser -p moviedb
-```
-
-Verify with `SELECT COUNT(*) FROM ratings;` after any bulk load — a clean exit code doesn't
-guarantee every row loaded.
-
-## 5. Clone the repo and configure environment variables
+## 5. Clone the repo, configure the environment, and apply the schema
 
 ```bash
 git clone <your-repo-url>
@@ -169,6 +142,33 @@ git):
 ```
 DATABASE_URL=mysql+pymysql://appuser:ChooseADifferentPasswordThanLocal!@localhost:3306/moviedb
 ```
+
+**Apply the schema and load seed data.** `movie-data.sql` isn't in the repo (too large for git,
+distributed as a GitHub Release asset instead) — pull it down now that `backend/db/` exists:
+
+```bash
+wget -O db/movie-data.sql \
+  https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
+```
+
+```bash
+alembic upgrade head
+mysql -u appuser -p moviedb < db/movie-data.sql
+```
+
+**If `movie-data.sql` includes tables outside this schema** (e.g. `creditcards`/`customers`/`sales`
+from the original dataset this was sourced from — not part of FilmGraph's schema), `mysql` aborts
+the entire script on the first error when run without `--force`, so an unsupported-table insert
+ahead of `ratings` in the file silently prevents `ratings` from loading at all, even though the
+command exits looking like it worked. Rather than editing the dump, pull just the missing table's
+inserts out and pipe them in directly:
+
+```bash
+grep -i "^INSERT INTO ratings" db/movie-data.sql | mysql -u appuser -p moviedb
+```
+
+Verify with `SELECT COUNT(*) FROM ratings;` after any bulk load — a clean exit code doesn't
+guarantee every row loaded.
 
 ## 6. Run the backend as a systemd service
 
