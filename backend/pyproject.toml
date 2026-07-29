@@ -9,6 +9,7 @@ dependencies = [
     "sqlalchemy",
     "pymysql",
     "pydantic-settings",
+    "alembic",
 ]
 
 [build-system]
