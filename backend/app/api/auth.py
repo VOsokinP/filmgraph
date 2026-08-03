@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.core.recaptcha import verify_recaptcha
 from app.core.security import create_access_token
-from app.dependencies import get_current_customer, get_db
+from app.dependencies import get_current_customer_id, get_db
 from app.schemas.auth import CustomerOut, LoginRequest
 from app.services.auth_service import authenticate_customer, get_customer_by_id
 
@@ -10,7 +10,7 @@ router = APIRouter()
 
 @router.post("/login", response_model=CustomerOut)
 def login(payload: LoginRequest, response: Response, conn = Depends(get_db)):
-    verify_recaptcha(payload.recaptchaToken)
+    verify_recaptcha(payload.recaptcha_token)
     customer = authenticate_customer(conn, payload.email, payload.password)
     if not customer:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -33,8 +33,8 @@ def logout(response: Response):
     return {"status": "ok"}
 
 @router.get("/me", response_model=CustomerOut)
-def me(customer_id: int = Depends(get_current_customer), conn = Depends(get_db)):
+def me(customer_id: int = Depends(get_current_customer_id), conn = Depends(get_db)):
     customer = get_customer_by_id(conn, customer_id)
     if not customer:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Code: 401 - Not authenticated")
     return customer

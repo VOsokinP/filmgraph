@@ -7,7 +7,7 @@ def get_db():
     with engine.connect() as conn:
         yield conn
 
-def get_current_customer(request: Request) -> int:
+def get_current_customer_id(request: Request) -> int:
     token = request.cookies.get("access_token")
     customer_id = decode_access_token(token) if token else None
     if customer_id is None:
