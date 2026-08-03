@@ -15,6 +15,7 @@ dependencies = [
     "itsdangerous",
     "httpx",
     "alembic",
+    "email-validator",
 ]
 
 [build-system]
