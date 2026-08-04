@@ -4,6 +4,7 @@ from app.core.recaptcha import verify_recaptcha
 from app.core.security import create_access_token
 from app.dependencies import get_current_customer_id, get_db
 from app.schemas.auth import CustomerOut, LoginRequest
+from app.services import cart_service
 from app.services.auth_service import authenticate_customer, get_customer_by_id
 
 router = APIRouter()
@@ -28,7 +29,8 @@ def login(payload: LoginRequest, response: Response, conn = Depends(get_db)):
     return customer
 
 @router.post("/logout")
-def logout(response: Response):
+def logout(response: Response, request: Request):
+    cart_service.clear_cart(request.session)
     response.delete_cookie(key="access_token", path="/")
     return {"status": "ok"}
 
