@@ -1,8 +1,6 @@
 from pydantic import BaseModel
 
-class GenreRef(BaseModel):
-    id: int
-    name: str
+from app.schemas.genre import GenreRef
 
 class StarRef(BaseModel):
     id: str
@@ -18,7 +16,14 @@ class MovieBase(BaseModel):
     rating: float | None
 
 class MovieListItem(MovieBase):
-    """GET /api/movies — genres/stars pre-truncated to 3 by the query."""
+    """One row of GET /api/movies — genres/stars truncated to 3 by the query"""
 
 class MovieDetail(MovieBase):
     """GET /api/movies/{id} — genres/stars never truncated."""
+
+class MovieListResponse(BaseModel):
+    """The full GET /api/movies response, including pagination info."""
+    items: list[MovieListItem]
+    total: int
+    page: int
+    limit: int

@@ -1,14 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.dependencies import get_db
-from app.schemas.movie import MovieDetail, MovieListItem
-from app.services.movies_service import get_movie_by_id, get_top_movies
+from app.schemas.movie import MovieDetail, MovieListResponse
+from app.services.movies_service import get_movie_by_id, search_movies
 
 router = APIRouter()
 
-@router.get("", response_model=list[MovieListItem])
-def list_movies(conn=Depends(get_db)):
-    movies = get_top_movies(conn)
-    return movies
+@router.get("", response_model=MovieListResponse)
+def list_movies(
+    title: str | None = None,
+    year: int | None = None,
+    director: str | None = None,
+    star: str | None = None,
+    genre_id: int | None = Query(None, alias="genreId"),
+    starts_with: str | None = Query(None, alias="startsWith"),
+    sort_by: str = Query("rating", alias="sortBy"),
+    sort_dir: str = Query("desc", alias="sortDir"),
+    page: int = 1,
+    limit: int = 20,
+    conn = Depends(get_db),
+):
+    movies, total = search_movies(
+        conn, title=title, year=year, director=director, star=star,
+        genre_id=genre_id, starts_with=starts_with,
+        sort_by=sort_by, sort_dir=sort_dir, page=page, limit=limit
+    )
+    return {
+        "items": movies,
+        "total": total,
+        "page": page,
+        "limit": limit,
+    }
 
 @router.get("/{movie_id}", response_model=MovieDetail)
 def read_movie(movie_id: str, conn=Depends(get_db)):

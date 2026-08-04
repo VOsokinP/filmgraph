@@ -1,106 +1,175 @@
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
-from sqlalchemy import bindparam
 
+ALLOWED_SORT = {"title", "rating"}
+ALLOWED_LIMITS = {10, 25, 50, 100}
+
+def _genres_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: int | None) -> dict[str, list[dict]]:
+    if not movie_ids:
+        return {}
+    rank_filter = "WHERE rn <= :limit_per_movie" if limit_per_movie else ""
+    query = text(f"""
+        SELECT movieId, id, name FROM(
+            SELECT gim.movieId, g.id, g.name,
+                   ROW_NUMBER() OVER (PARTITION BY gim.movieId ORDER BY g.name) AS rn
+            FROM genres_in_movies gim
+            JOIN genres g ON gim.genreId = g.id
+            WHERE gim.movieId IN :movie_ids
+        ) ranked
+        {rank_filter}
+    """).bindparams(bindparam("movie_ids", expanding=True))
+
+    params = {"movie_ids": movie_ids}
+    if limit_per_movie:
+        params["limit_per_movie"] = limit_per_movie
+
+    result: dict[str, list[dict]] = {}
+    for row in conn.execute(query, params).mappings().all():
+        result.setdefault(row["movieId"], []).append({"id": row["id"], "name": row["name"]})
+    return result
+
+def _stars_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: int | None) -> dict[str, list[dict]]:
+    if not movie_ids:
+        return {}
+    rank_filter = "WHERE rn <= :limit_per_movie" if limit_per_movie else ""
+    query = text(f"""
+        SELECT movieId, id, name FROM (
+            SELECT sim.movieId, s.id, s.name,
+                ROW_NUMBER() OVER (
+                    PARTITION BY sim.movieId
+                    ORDER BY star_counts.movie_count DESC, s.name ASC
+                ) AS rn
+            FROM stars_in_movies sim
+            JOIN stars s ON sim.starId = s.id
+            JOIN (
+                SELECT starId, COUNT(*) AS movie_count
+                FROM stars_in_movies
+                GROUP BY starId
+            ) AS star_counts ON star_counts.starId = s.id
+            WHERE sim.movieId IN :movie_ids
+        ) ranked
+        {rank_filter}
+    """).bindparams(bindparam("movie_ids", expanding=True))
+
+    params = {"movie_ids": movie_ids}
+    if limit_per_movie:
+        params["limit_per_movie"] = limit_per_movie
+
+    result: dict[str, list[dict]] = {}
+    for row in conn.execute(query, params).mappings().all():
+        result.setdefault(row["movieId"], []).append({"id": row["id"], "name": row["name"]})
+    return result
+    
 def get_movie_by_id(conn: Connection, movie_id: str) -> dict | None:
     movie_row = conn.execute(
         text("SELECT id, title, year, director FROM movies WHERE id = :movie_id"),
         {"movie_id": movie_id},
     ).mappings().first()
-    if movie_row is None:
+    if not movie_row:
         return None
 
-    genre_rows = conn.execute(
-        text("""
-            SELECT g.id, g.name
-            FROM genres g
-            JOIN genres_in_movies gim ON g.id = gim.genreId
-            WHERE gim.movieId = :movie_id
-             """),
-            {"movie_id": movie_id},
-    ).mappings().all()
-
-    star_rows = conn.execute(
-        text("""
-            SELECT s.id, s.name
-            FROM stars s
-            JOIN stars_in_movies sim ON s.id = sim.starId
-            WHERE sim.movieId = :movie_id
-            """),
-            {"movie_id": movie_id},
-    ).mappings().all()
-
     rating_row = conn.execute(
-        text("SELECT rating FROM ratings where movieId = :movie_id"),
+        text("SELECT rating FROM ratings WHERE movieId = :movie_id"),
         {"movie_id": movie_id},
     ).mappings().first()
 
     return {
         **movie_row,
-        "genres": list(genre_rows),
-        "stars": list(star_rows),
+        "genres": _genres_for_movies(conn, [movie_id], limit_per_movie=None).get(movie_id, []),
+        "stars": _stars_for_movies(conn, [movie_id], limit_per_movie=None).get(movie_id, []),
         "rating": rating_row["rating"] if rating_row else None,
     }
 
-def get_top_movies(conn: Connection, limit: int = 20) -> list[dict]:
-    """ top 20 movies by rating, first 3 genres/stars each """
-    top_rows = conn.execute(
-        text("""
-            SELECT m.id, m.title, m.year, m.director, r.rating
-            FROM movies m
-            JOIN ratings r ON m.id = r.movieId
-            ORDER BY r.rating DESC
-            LIMIT :limit
-            """),
-            {"limit": limit},
-    ).mappings().all()
-    if not top_rows:
-        return []
+def search_movies(
+        conn: Connection,
+        *,
+        title: str | None = None,
+        year: int | None = None,
+        director: str | None = None,
+        star : str | None = None,
+        genre_id: int | None = None,
+        starts_with: str | None = None,
+        sort_by: str = "rating",
+        sort_dir: str = "desc",
+        page : int = 1,
+        limit: int = 20,
+) -> tuple[list[dict], int]:
+    """ Search/browse/sort/paginate. Calling this with no filters reproduces same behavior 
+    as previous implementation "top by rating" list."""
+    sort_by = sort_by if sort_by in ALLOWED_SORT else "rating"
+    sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
+    secondary = "rating" if sort_by == "title" else "title"
+    limit = limit if limit in ALLOWED_LIMITS else 20
+    page = max(page, 1)
+    offset = (page - 1) * limit
 
-    movie_ids = [row["id"] for row in top_rows]
+    where: list[str] = []
+    params: dict =  {"limit": limit, "offset": offset}
 
-    genres_query = text("""
-        SELECT movieId, id, name FROM (
-            SELECT gim.movieId, g.id, g.name,
-                   ROW_NUMBER() OVER (PARTITION BY gim.movieId ORDER BY g.id) AS rn
-            FROM genres_in_movies gim
-            JOIN genres g ON gim.genreId = g.id
-            WHERE gim.movieId IN :movie_ids
-        ) ranked
-        WHERE rn <= 3
-    """).bindparams(bindparam("movie_ids", expanding=True))
+    if title:
+        where.append("m.title LIKE :title")
+        params["title"] = f"%{title}%"
+    if year is not None:
+        where.append("m.year = :year")
+        params["year"] = year
+    if director:
+        where.append("m.director LIKE :director")
+        params["director"] = f"%{director}%"
+    if star:
+        where.append("""
+            m.id IN (
+                SELECT sim.movieId FROM stars_in_movies sim
+                JOIN stars s ON sim.starId = s.id
+                WHERE s.name LIKE :star
+            )
+        """)
+        params["star"] = f"%{star}%"
+    if genre_id is not None:
+        where.append("""
+            m.id IN (
+                SELECT gim.movieId FROM genres_in_movies gim
+                WHERE gim.genreId = :genre_id
+            )
+        """)
+        params["genre_id"] = genre_id
+    if starts_with:
+        if starts_with == "*":
+            where.append("m.title REGEXP '^[^a-zA-Z0-9]'")
+        else:
+            where.append("m.title LIKE :starts_with")
+            params["starts_with"] = f"{starts_with}%"
 
-    stars_query = text("""
-        SELECT movieId, id, name FROM (
-            SELECT sim.movieId, s.id, s.name,
-                   ROW_NUMBER() OVER (PARTITION BY sim.movieId ORDER BY s.id) AS rn
-            FROM stars_in_movies sim
-            JOIN stars s ON sim.starId = s.id
-            WHERE sim.movieId IN :movie_ids
-        ) ranked
-        WHERE rn <= 3
-    """).bindparams(bindparam("movie_ids", expanding=True))
+    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
 
-    genre_rows = conn.execute(genres_query, {"movie_ids": movie_ids}).mappings().all()
-    star_rows = conn.execute(stars_query, {"movie_ids": movie_ids}).mappings().all()
+    # LEFT JOIN and not INNER since an unrated movie should still show up in search/browse results with a null rating
+    query = text(f"""
+        SELECT m.id, m.title, m.year, m.director, r.rating, 
+            COUNT(*) OVER() AS total_count
+        FROM movies m
+        LEFT JOIN ratings r ON m.id = r.movieId
+        {where_clause}
+        ORDER BY {sort_by} {sort_dir}, {secondary} {sort_dir}
+        LIMIT :limit OFFSET :offset
+    """)
+    rows = conn.execute(query, params).mappings().all()
+    if not rows:
+        return [], 0
 
-    genres_by_movies: dict[str, list[dict]] = {}
-    for row in genre_rows:
-        genres_by_movies.setdefault(row["movieId"], []).append({"id": row["id"], "name": row["name"]})
+    total = rows[0]["total_count"]
+    movie_ids = [row["id"] for row in rows]
+    genres_by_movie = _genres_for_movies(conn, movie_ids, limit_per_movie=3)
+    stars_by_movie = _stars_for_movies(conn, movie_ids, limit_per_movie=3)
 
-    stars_by_movies: dict[str, list[dict]] = {}
-    for row in star_rows:
-        stars_by_movies.setdefault(row["movieId"], []).append({"id": row["id"], "name": row["name"]})
-    
-    return [
+    movies = [
         {
-            "id": m["id"],
-            "title": m["title"],
-            "year": m["year"],
-            "director": m["director"],
-            "rating": m["rating"],
-            "genres": genres_by_movies.get(m["id"], []),
-            "stars": stars_by_movies.get(m["id"], []),
+            "id": r["id"],
+            "title": r["title"],
+            "year": r["year"],
+            "director": r["director"],
+            "rating": r["rating"],
+            "genres": genres_by_movie.get(r["id"], []),
+            "stars": stars_by_movie.get(r["id"], []),
         }
-        for m in top_rows
+        for r in rows
     ]
+    return movies, total

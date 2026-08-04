@@ -12,10 +12,11 @@ def get_star_with_movies(conn: Connection, star_id: str) -> dict | None:
 
     movie_rows = conn.execute(
         text("""
-            SELECT m.id AS movie_id, m.title
+            SELECT m.id AS movie_id, m.title, m.year
             FROM stars_in_movies sim
             JOIN movies m ON m.id = sim.movieId
             WHERE sim.starId = :star_id
+            ORDER BY m.year DESC, m.title ASC
         """),
         {"star_id": star_id},
     ).mappings().all()
