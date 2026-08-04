@@ -1,9 +1,12 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 import jwt
 from passlib.context import CryptContext
 
 from app.config import settings
+
+logging.getLogger("passlib").setLevel(logging.ERROR)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -22,5 +25,5 @@ def decode_access_token(token: str) -> int | None:
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         return int(payload["sub"])
-    except jwt.PYJWTError:
+    except jwt.PyJWTError:
         return None
