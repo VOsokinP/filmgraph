@@ -9,6 +9,7 @@ from app.config import settings
 logging.getLogger("passlib").setLevel(logging.ERROR)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+DUMMY_PASSWORD_HASH = pwd_context.hash("timing-equalization-dummy")
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
