@@ -1,5 +1,9 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
+import { AuthProvider } from "./auth/AuthContext";
+import ProtectedRoute from "./auth/ProtectedRoute";
+import Layout from "./Layout";
+import Login from "./pages/Login";
 import MovieList from "./pages/MovieList";
 import SingleMovie from "./pages/SingleMovie";
 import SingleStar from "./pages/SingleStar";
@@ -7,11 +11,18 @@ import SingleStar from "./pages/SingleStar";
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<MovieList />} />
-        <Route path="/movies/:id" element={<SingleMovie />} />
-        <Route path="/stars/:id" element={<SingleStar />} />
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<Layout />}>
+              <Route path="/" element={<MovieList />} />
+              <Route path="/movies/:id" element={<SingleMovie />} />
+              <Route path="/stars/:id" element={<SingleStar />} />
+            </Route>
+          </Route>
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

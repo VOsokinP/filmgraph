@@ -11,18 +11,26 @@ interface MovieListItem {
     stars: {id: string; name: string}[];
     rating: number;
 }
+interface MovieListResponse {
+    items: MovieListItem[];
+    total: number;
+    page: number;
+    limit: number;
+}
 
 export default function MovieList() {
-    const [movies, setMovies] = useState<MovieListItem[]>([]);
+    const [data, setData] = useState<MovieListResponse | null>(null);
 
     useEffect(() => {
-        apiGet<MovieListItem[]>("/movies").then(setMovies);
+        apiGet<MovieListResponse>("/movies").then(setData);
     }, []);
+    
+    if (!data) return <p>Loading…</p>;
 
     return (
         <table>
             <tbody>
-                {movies.map((m) => (
+                {data.items.map((m) => (
                     <tr key={m.id}>
                         <td><Link to={`/movies/${m.id}`}>{m.title}</Link></td>
                         <td>{m.year}</td>
