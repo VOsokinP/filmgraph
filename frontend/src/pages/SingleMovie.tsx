@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
+import AddToCartButton from '../components/AddToCartButton';
 import { apiGet } from '../api/client';
 
 interface MovieDetail {
@@ -9,11 +10,13 @@ interface MovieDetail {
     director: string;
     genres: {id: number; name: string}[];
     stars: {id: string; name: string}[];
-    rating: number;
+    rating: number | null;
 }
 
 export default function SingleMovie() {
     const { id } = useParams<{ id: string }>();
+    const location = useLocation();
+    const backTo = (location.state as { from?: string }).from ?? "/";
     const [movie, setMovie] = useState<MovieDetail | null>(null);
 
     useEffect(() => {
@@ -32,12 +35,15 @@ export default function SingleMovie() {
                 Stars:{" "}
                 {movie.stars.map((s, i) => (
                     <span key={s.id}>
-                        <Link to={`/stars/${s.id}`}>{s.name}</Link>
+                        <Link to={`/stars/${s.id}`} state={{ from: backTo }}>{s.name}</Link>
                         {i < movie.stars.length - 1 ? ", " : ""}
                     </span>
                 ))}
             </p>
-            <Link to="/">Back to Movie List</Link>
+            <AddToCartButton movieId={movie.id} />
+            <div>
+                <Link to={backTo}>Back to Movie List</Link>
+            </div>
         </div>
     );
 }

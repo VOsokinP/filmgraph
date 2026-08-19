@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useLocation } from 'react-router-dom';
 
 import { apiGet } from '../api/client';
 
@@ -12,6 +12,8 @@ interface StarDetail {
 
 export default function SingleStar() {
     const { id } = useParams<{ id: string }>();
+    const location = useLocation();
+    const backTo = (location.state as { from?: string }).from ?? "/";
     const [star, setStar] = useState<StarDetail | null>(null);
 
     useEffect(() => {
@@ -27,11 +29,11 @@ export default function SingleStar() {
             <ul>
                 {star.movies.map((m) => (
                     <li key={m.id}>
-                        <Link to={`/movies/${m.id}`}>{m.title}</Link>
+                        <Link to={`/movies/${m.id}`} state={{ from: backTo }}>{m.title}</Link>
                     </li>
                 ))}
             </ul>
-            <Link to="/">Back to Movie List</Link>
+            <Link to={backTo}>Back to Movie List</Link>
         </div>
     );
 }
