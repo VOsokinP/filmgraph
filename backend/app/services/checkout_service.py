@@ -7,7 +7,8 @@ def verify_card(conn: Connection, payment: dict) -> bool:
     row = conn.execute(
         text("""
                 SELECT id FROM creditcards
-                WHERE id = :card_number AND firstName = :first_name
+                WHERE REPLACE(REPLACE(id, ' ', ''), '-', '') = :card_number
+                AND firstName = :first_name
                 AND lastName = :last_name AND expiration = :expiration
             """),
             payment,
