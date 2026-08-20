@@ -1,7 +1,8 @@
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 
-ALLOWED_SORT = {"title", "rating"}
+ALLOWED_SORT = {"title", "rating", "price"}
+SECONDARY_SORT = {"title": "rating", "rating": "title", "price": "title"}
 ALLOWED_LIMITS = {10, 25, 50, 100}
 
 def _genres_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: int | None) -> dict[str, list[dict]]:
@@ -62,7 +63,7 @@ def _stars_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: i
     
 def get_movie_by_id(conn: Connection, movie_id: str) -> dict | None:
     movie_row = conn.execute(
-        text("SELECT id, title, year, director FROM movies WHERE id = :movie_id"),
+        text("SELECT id, title, year, director, price FROM movies WHERE id = :movie_id"),
         {"movie_id": movie_id},
     ).mappings().first()
     if not movie_row:
@@ -98,7 +99,7 @@ def search_movies(
     as previous implementation "top by rating" list."""
     sort_by = sort_by if sort_by in ALLOWED_SORT else "rating"
     sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
-    secondary = "rating" if sort_by == "title" else "title"
+    secondary = SECONDARY_SORT[sort_by]
     limit = limit if limit in ALLOWED_LIMITS else 20
     page = max(page, 1)
     offset = (page - 1) * limit
@@ -143,7 +144,7 @@ def search_movies(
 
     # LEFT JOIN and not INNER since an unrated movie should still show up in search/browse results with a null rating
     query = text(f"""
-        SELECT m.id, m.title, m.year, m.director, r.rating, 
+        SELECT m.id, m.title, m.year, m.director, m.price, r.rating,
             COUNT(*) OVER() AS total_count
         FROM movies m
         LEFT JOIN ratings r ON m.id = r.movieId
@@ -167,6 +168,7 @@ def search_movies(
             "year": r["year"],
             "director": r["director"],
             "rating": r["rating"],
+            "price": r["price"],
             "genres": genres_by_movie.get(r["id"], []),
             "stars": stars_by_movie.get(r["id"], []),
         }

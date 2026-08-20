@@ -11,6 +11,7 @@ interface MovieDetail {
     genres: {id: number; name: string}[];
     stars: {id: string; name: string}[];
     rating: number | null;
+    price: number;
 }
 
 export default function SingleMovie() {
@@ -29,7 +30,8 @@ export default function SingleMovie() {
         <div>
             <h1>{movie.title} ({movie.year})</h1>
             <p>Director: {movie.director}</p>
-            <p>Rating: {movie.rating}</p>
+            <p>Rating: {movie.rating ?? "N/A"}</p>
+            <p>Price: ${movie.price.toFixed(2)}</p>
             <p>Genres: {movie.genres.map((g) => g.name).join(", ")}</p>
             <p>
                 Stars:{" "}

@@ -15,6 +15,7 @@ interface MovieListItem {
     genres: Genre[];
     stars: Star[];
     rating: number | null;
+    price: number;
 }
 interface MovieListResponse {
     items: MovieListItem[];
@@ -22,6 +23,8 @@ interface MovieListResponse {
     page: number;
     limit: number;
 }
+
+type SortField = "title" | "rating" | "price";
 
 const PAGE_SIZES = [10, 25, 50, 100];
 const ALPHABET = [
@@ -64,13 +67,27 @@ export default function MovieList() {
         setSearchParams(next);
     };
 
-    const toggleSort = (field: "title" | "rating") => {
+    const toggleSort = (field: SortField) => {
         const nextDir = sortBy === field && sortDir === "asc" ? "desc" : "asc";
         const next = new URLSearchParams(searchParams);
         next.set("sortBy", field);
         next.set("sortDir", nextDir);
         next.set("page", "1");
         setSearchParams(next);
+    };
+
+    const sortableHeader = (field: SortField, label: string) => {
+        const active = sortBy === field;
+        return (
+            <th
+                scope = "col"
+                aria-sort = {active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+            >
+                <button type = "button" onClick = {() => toggleSort(field)}>
+                    {label} {active ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+                </button>
+            </th>
+        );
     };
 
     if (!data) return <p>Loading…</p>;
@@ -102,12 +119,13 @@ export default function MovieList() {
             <table>
                 <thead>
                     <tr>
-                        <th onClick = {() => toggleSort("title")}>Title</th>
-                        <th>Year</th>
-                        <th>Director</th>
-                        <th>Genres</th>
-                        <th>Stars</th>
-                        <th onClick = {() => toggleSort("rating")}>Rating</th>
+                        {sortableHeader("title", "Title")}
+                        <th scope = "col">Year</th>
+                        <th scope = "col">Director</th>
+                        <th scope = "col">Genres</th>
+                        <th scope = "col">Stars</th>
+                        {sortableHeader("rating", "Rating")}
+                        {sortableHeader("price", "Price")}
                         <th />
                     </tr>
                 </thead>
@@ -136,6 +154,7 @@ export default function MovieList() {
                                 ))}
                             </td>
                             <td>{m.rating ?? "N/A"}</td>
+                            <td>${m.price.toFixed(2)}</td>
                             <td>
                                 <AddToCartButton movieId = {m.id} />
                             </td>

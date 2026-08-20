@@ -14,6 +14,7 @@ class MovieBase(BaseModel):
     genres: list[GenreRef]
     stars: list[StarRef]
     rating: float | None
+    price: float
 
 class MovieListItem(MovieBase):
     """One row of GET /api/movies — genres/stars truncated to 3 by the query"""
