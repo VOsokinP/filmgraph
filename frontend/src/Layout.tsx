@@ -17,6 +17,7 @@ export default function Layout() {
         <div>
             <nav>
                 <Link to="/">Movies</Link>
+                <Link to="/cart">Checkout</Link>
                 <button onClick={logout}>Logout</button>
             </nav>
             <Outlet />
