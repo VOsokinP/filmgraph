@@ -25,5 +25,5 @@ def get_star_with_movies(conn: Connection, star_id: str) -> dict | None:
         "id": star_row["id"],
         "name": star_row["name"],
         "birth_year": star_row["birthYear"],
-        "movies": [{"id": r["movie_id"], "title": r["title"]} for r in movie_rows],
+        "movies": [{"id": r["movie_id"], "title": r["title"], "year": r["year"]} for r in movie_rows],
     }

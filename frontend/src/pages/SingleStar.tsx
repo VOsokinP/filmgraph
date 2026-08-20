@@ -7,7 +7,7 @@ interface StarDetail {
     id: string;
     name: string;
     birth_year: number | null;
-    movies: {id: string; title: string}[];
+    movies: {id: string; title: string; year: number}[];
 }
 
 export default function SingleStar() {
@@ -26,13 +26,29 @@ export default function SingleStar() {
         <div>
             <h1>{star.name}</h1>
             <p> Born: {star.birth_year ?? 'N/A'}</p>
-            <ul>
-                {star.movies.map((m) => (
-                    <li key={m.id}>
-                        <Link to={`/movies/${m.id}`} state={{ from: backTo }}>{m.title}</Link>
-                    </li>
-                ))}
-            </ul>
+            <h2>Filmography ({star.movies.length})</h2>
+            {star.movies.length === 0 ? (
+                <p>No movie credits on record.</p>
+            ) : (
+                <table className="filmography">
+                    <thead>
+                        <tr>
+                            <th scope="col">Title</th>
+                            <th scope="col">Year</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {star.movies.map((m) => (
+                            <tr key={m.id}>
+                                <td>
+                                    <Link to={`/movies/${m.id}`} state={{ from: backTo }}>{m.title}</Link>
+                                </td>
+                                <td>{m.year}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
             <Link to={backTo}>Back to Movie List</Link>
         </div>
     );

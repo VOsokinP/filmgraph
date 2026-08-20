@@ -109,3 +109,26 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+.filmography {
+  margin: 0 auto 24px;
+  border-collapse: collapse;
+  text-align: left;
+  min-width: min(480px, 100%);
+}
+
+.filmography th,
+.filmography td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.filmography th {
+  color: var(--text-h);
+}
+
+.filmography th:last-child,
+.filmography td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
