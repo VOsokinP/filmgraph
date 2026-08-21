@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.dependencies import get_db
 from app.schemas.movie import MovieDetail, MovieListResponse
-from app.services.movies_service import get_movie_by_id, search_movies
+from app.services.movies_service import DEFAULT_LIMIT, get_movie_by_id, search_movies
 
 router = APIRouter()
 
@@ -16,10 +16,10 @@ def list_movies(
     sort_by: str = Query("rating", alias="sortBy"),
     sort_dir: str = Query("desc", alias="sortDir"),
     page: int = 1,
-    limit: int = 20,
+    limit: int = DEFAULT_LIMIT,
     conn = Depends(get_db),
 ):
-    movies, total = search_movies(
+    movies, total, applied_limit = search_movies(
         conn, title=title, year=year, director=director, star=star,
         genre_id=genre_id, starts_with=starts_with,
         sort_by=sort_by, sort_dir=sort_dir, page=page, limit=limit
@@ -27,8 +27,8 @@ def list_movies(
     return {
         "items": movies,
         "total": total,
-        "page": page,
-        "limit": limit,
+        "page": max(page, 1),
+        "limit": applied_limit,
     }
 
 @router.get("/{movie_id}", response_model=MovieDetail)

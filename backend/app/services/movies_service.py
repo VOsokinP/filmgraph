@@ -1,9 +1,10 @@
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 
-ALLOWED_SORT = {"title", "rating", "price"}
-SECONDARY_SORT = {"title": "rating", "rating": "title", "price": "title"}
+ALLOWED_SORT = {"title", "year", "rating", "price"}
+SECONDARY_SORT = {"title": "rating", "year": "title", "rating": "title", "price": "title"}
 ALLOWED_LIMITS = {10, 25, 50, 100}
+DEFAULT_LIMIT = 10
 
 def _genres_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: int | None) -> dict[str, list[dict]]:
     if not movie_ids:
@@ -93,14 +94,15 @@ def search_movies(
         sort_by: str = "rating",
         sort_dir: str = "desc",
         page : int = 1,
-        limit: int = 20,
-) -> tuple[list[dict], int]:
-    """ Search/browse/sort/paginate. Calling this with no filters reproduces same behavior 
-    as previous implementation "top by rating" list."""
+        limit: int = DEFAULT_LIMIT,
+) -> tuple[list[dict], int, int]:
+    """ Search/browse/sort/paginate. Calling this with no filters reproduces same behavior
+    as previous implementation "top by rating" list.
+    Returns the rows, the total match count, and the limit actually applied."""
     sort_by = sort_by if sort_by in ALLOWED_SORT else "rating"
     sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
     secondary = SECONDARY_SORT[sort_by]
-    limit = limit if limit in ALLOWED_LIMITS else 20
+    limit = limit if limit in ALLOWED_LIMITS else DEFAULT_LIMIT
     page = max(page, 1)
     offset = (page - 1) * limit
 
@@ -154,7 +156,7 @@ def search_movies(
     """)
     rows = conn.execute(query, params).mappings().all()
     if not rows:
-        return [], 0
+        return [], 0, limit
 
     total = rows[0]["total_count"]
     movie_ids = [row["id"] for row in rows]
@@ -174,4 +176,4 @@ def search_movies(
         }
         for r in rows
     ]
-    return movies, total
+    return movies, total, limit
