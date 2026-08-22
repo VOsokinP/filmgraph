@@ -1,140 +1,188 @@
 # FilmGraph
 
-FilmGraph is a full-stack movie catalog web app: a page listing top-rated movies, a page showing
-one movie's full detail, and a page showing one actor's full detail, all cross-linked. It's built
-with a FastAPI (Python) JSON API backend, a React + TypeScript frontend, and a MySQL database.
+[![CI](https://github.com/VOsokinP/FilmGraph/actions/workflows/ci.yml/badge.svg)](https://github.com/VOsokinP/FilmGraph/actions/workflows/ci.yml)
 
-## Database Setup
+A full-stack movie catalog: browse and search ~9,000 films, drill into a movie or an actor, build a
+cart, and check out. Built with a **FastAPI** JSON API, a **React + TypeScript** single-page
+frontend, and **MySQL 8**, deployed to AWS EC2 behind Nginx.
 
-Targets **MySQL 8.0**.
+## Features
 
-1. **Get the seed data.** `movie-data.sql` isn't checked into this repo (too large for git).
-   Download it from GitHub Releases and place it at `backend/db/movie-data.sql`:
-   https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
+**Authentication** - email + password login, bcrypt-hashed credentials, JWT issued in an httpOnly
+cookie and verified on every request. Optional Google reCAPTCHA on the login form. Failed logins
+return one generic message for both unknown-email and wrong-password, and the miss path runs a dummy
+hash verification so response time doesn't leak which emails are registered.
 
-2. **Create the database and app user:**
-   ```sql
-   CREATE DATABASE moviedb;
-   CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'password';
-   GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
-   ```
+**Search and browse** - by title, year, director, or star, combined with AND logic and substring
+matching (exact for year). Browse by genre or by title's first letter.
 
-3. **Install backend dependencies and configure the connection.** The schema is applied via
-   Alembic, which needs the app's own config to find the database — so this has to happen before
-   the schema step below:
-   ```bash
-   cd backend
-   pip install -e .
-   cp .env.example .env
-   ```
-   ```
-   DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
-   ```
+**Movie list** - sortable by title, year, rating, or price in either direction, with a stable
+secondary sort and prev/next pagination. Page size is clamped server-side to a fixed allowlist, and
+the response reports the limit actually applied rather than the one requested.
 
-4. **Apply the schema** (from `backend/`):
-   ```bash
-   alembic upgrade head
-   ```
+**Detail pages** - a movie's full genre and cast list, an actor's full filmography sorted by year,
+cross-linked in both directions. Per-movie genres and stars are fetched in a fixed number of queries
+using `ROW_NUMBER() OVER (PARTITION BY ...)` rather than one query per row.
 
-5. **Load the seed data** (from `backend/`):
-   ```bash
-   mysql -u appuser -p moviedb < db/movie-data.sql
-   ```
+**Cart and checkout** - cart state lives in a signed session cookie. Checkout verifies the card
+against the `creditcards` table and writes a real `orders` row plus one `sales` line item per movie,
+in a transaction that rolls back if any insert fails. Payment is mocked; no real processor.
 
-## Backend
+## Tech Stack
 
-Built with **FastAPI** (JSON API), **SQLAlchemy Core** (raw SQL, connection pooling) over
-**PyMySQL**, **Alembic** for schema migrations, and **pydantic-settings** for config, served by
-**Uvicorn**.
+| Layer | Choices |
+|---|---|
+| Backend | FastAPI, Pydantic v2, SQLAlchemy 2.0 Core, PyMySQL, Alembic, PyJWT, passlib/bcrypt |
+| Frontend | React 19, TypeScript, Vite, react-router-dom 7, oxlint. No CSS framework or component library - plain CSS driven by custom properties |
+| Database | MySQL 8 |
+| Tests / CI | pytest against a real MySQL schema, GitHub Actions |
+| Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers |
 
-Dependencies, `.env` configuration, and the schema are set up as part of **Database Setup** above.
-Run steps are in **Running Locally** below.
 
-## Frontend
+## Getting Started
 
-Built with **React + TypeScript** (Vite) as a separate single-page app, using
-**react-router-dom** for client-side routing. Three pages — movie list, single movie, single
-star — call the FastAPI JSON API and cross-link each other.
+Requires Python ≥3.11, Node ≥20, and MySQL 8.
 
-1. **Install dependencies:**
-   ```bash
-   cd frontend
-   npm install
-   ```
+### 1. Database
 
-Run steps are in **Running Locally** below.
-
-## Running Locally
-
-With the database set up (see **Database Setup** above), run both servers in separate terminals.
-
-**Backend** (from `backend/`, after installing dependencies, configuring `.env`, and applying the
-schema per **Database Setup** above):
-```bash
-uvicorn app.main:app --reload --port 8000
+```sql
+CREATE DATABASE moviedb CHARACTER SET utf8mb4;
+CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
 ```
-Interactive API docs (auto-generated from the Pydantic schemas) are at
-`http://localhost:8000/docs` — useful for exercising each endpoint directly.
 
-**Frontend** (from `frontend/`, after `npm install`):
+### 2. Backend
+
 ```bash
-npm run dev
+cd backend
+pip install -e .
+cp .env.example .env        # then fill in the values below
+alembic upgrade head        # the only supported way to build the schema
 ```
-App runs at `http://localhost:5173` and expects the backend at `http://localhost:8000`; CORS is
-already configured in `main.py` for the Vite dev server's origin.
+
+`.env` needs at minimum:
+
+```
+DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
+JWT_SECRET_KEY=<python -c "import secrets; print(secrets.token_urlsafe(48))">
+SESSION_SECRET_KEY=<generate a second, different one>
+```
+
+Generate the two secrets separately - they sign different things (identity vs. cart session)
+
+### 3. Seed data
+
+`movie-data.sql` is not in the repo. Download it from
+[Releases](https://github.com/VOsokinP/FilmGraph/releases/download/v1.0-seed-data/movie-data.sql),
+place it at `backend/db/movie-data.sql`, then:
+
+```bash
+mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
+```
+
+### 4. Frontend
+
+```bash
+cd frontend
+npm install
+```
+
+### 5. Run
+
+Two terminals:
+
+```bash
+cd backend  && uvicorn app.main:app --reload --port 8000   # API + docs at /docs
+cd frontend && npm run dev                                  # http://localhost:5173
+```
+
+CORS for the Vite dev origin is already configured in `app/main.py`.
+
+## Tests
+
+```bash
+cd backend
+pip install -e ".[dev]"
+pytest -q
+```
+
+Tests run against a **real MySQL schema**, not a mock or SQLite - the app leans on MySQL-specific
+SQL, so anything else would be testing different code than production runs. `conftest.py` redirects
+`DATABASE_URL` to `moviedb_test` before the app's config is imported, drops and rebuilds that
+database with `alembic upgrade head`, and seeds a small fixture set. **`moviedb` is never touched.**
+
+One-time grant:
+
+```sql
+CREATE DATABASE IF NOT EXISTS moviedb_test CHARACTER SET utf8mb4;
+GRANT ALL PRIVILEGES ON moviedb_test.* TO 'appuser'@'localhost';
+```
+
+Set `TEST_DATABASE_URL` to point somewhere else (CI does this).
+
+Coverage is deliberately weighted toward the failure modes that actually shipped: unknown email
+returning 401 rather than a 500, identical error messages for both login failure paths, the auth
+gate on every protected router, page-size clamping matching the reported limit, and an invariant
+asserting the sort allowlist and secondary-sort table can't drift apart.
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+- **backend** - boots a `mysql:8` service container, applies migrations, runs pytest
+- **frontend** - `npm ci`, oxlint, and a production `vite build`
+
+Both run on Ubuntu from a clean checkout.
 
 ## Deployment
 
-Deployed to a single AWS EC2 instance: `t3.micro`, Ubuntu Server 24.04 LTS (free-tier eligible).
-Full step-by-step setup instructions (EC2 launch through Nginx/HTTPS config) are in
-[`DEPLOYMENT.md`](./DEPLOYMENT.md) — this section is a quick reference, not a from-scratch guide.
+One AWS EC2 instance (`t3.micro`, Ubuntu 24.04): Nginx serves the built frontend and reverse-proxies
+`/api/...` to Gunicorn/Uvicorn on `127.0.0.1:8000`.
+The backend runs under systemd and restarts on crash or reboot.
 
-- **`deploy/filmgraph-api.service`** (systemd) — runs the backend as a managed service (Gunicorn
-  managing Uvicorn workers), reading `DATABASE_URL` from `backend/.env` on the instance (not
-  committed). Restarts automatically on crash or reboot.
-- **`deploy/nginx.conf`** — the single public entry point. Serves the built frontend's static files
-  from `frontend/dist/`, reverse-proxies `/api/...` to the backend on `127.0.0.1:8000`, and falls
-  back to `index.html` for client-side routes so direct links like `/movies/mv1` don't 404.
+Full walkthrough in [`DEPLOYMENT.md`](./DEPLOYMENT.md). Redeploy:
 
-**Redeploying after a change:**
 ```bash
-ssh -i your-key.pem ubuntu@<elastic-ip>
-cd filmgraph
 git pull
+cd backend  && pip install -e . && sudo systemctl restart filmgraph-api
+cd frontend && npm ci && npm run build          # Nginx serves dist/ directly, no restart
 ```
-If backend dependencies changed:
-```bash
-cd backend && source .venv/bin/activate && pip install -e . && cd ..
-sudo systemctl restart filmgraph-api
+
+**Live demo:** the instance runs on demand rather than continuously, so there's no permanent public
+link yet. Available on request for a walkthrough.
+
+## Project Layout
+
 ```
-If only backend code changed (no new dependencies), the restart alone is enough.
-
-If frontend code changed:
-```bash
-cd frontend && npm ci && npm run build && cd ..
+backend/
+  app/
+    api/          # routers - HTTP concerns only
+    services/     # business logic and all SQL
+    schemas/      # Pydantic request/response models
+    core/         # security.py, recaptcha.py
+    db/           # engine.py - connection management
+  alembic/        # migrations - the schema source of truth
+  tests/
+frontend/src/
+  pages/          # one component per route
+  components/ui/  # Button, Field, EmptyState, Icons (inline SVG)
+  auth/           # AuthContext + AuthProvider + ProtectedRoute
+  cart/           # CartCountContext + CartCountProvider
+  api/client.ts
+deploy/           # systemd unit + nginx config
 ```
-No restart needed — Nginx serves whatever's currently in `dist/` on the next request.
 
-**Live demo:** not running continuously — the instance is spun up on demand rather than left on
-between sessions. A free domain and more persistent hosting are planned; until then, available on
-request for a live walkthrough.
+## Roadmap
 
-## Milestones
-
-- [x] `alembic upgrade head` builds the full schema cleanly against a fresh MySQL 8 database
-- [x] Data loads without foreign-key errors
-- [x] Movie list shows the top 20 movies by rating, correctly sorted, each row with
-      title/year/director/3 genres/3 stars/rating
-- [x] Every movie title and star name is a working link
-- [x] Single movie page shows complete (untruncated) genre and star lists
-- [x] Single star page shows name, birth year (or N/A), and every movie, each linked
-- [x] Navigation works in both directions between all three page types; "back to list" works from
-      any detail page
-- [x] README documents database setup, backend run steps, and frontend run steps
-- [x] Deployed to a server (e.g. AWS EC2)
-
-## Status
-
-Core read-only flow (movie list / single movie / single star) working end-to-end, deployed to AWS
-EC2 behind Nginx and systemd. Instance is run on demand rather than kept up continuously; a domain
-is planned for a persistent live link.
+- [x] Read-only browsing - movie list, movie detail, star detail, cross-linked
+- [x] Schema managed entirely by Alembic
+- [x] Auth - bcrypt, JWT cookie, gated reCAPTCHA
+- [x] Search, browse, sort, pagination
+- [x] Cart and transactional checkout
+- [x] Deployed to AWS EC2 behind Nginx + systemd
+- [x] pytest suite against a real MySQL schema, GitHub Actions CI
+- [ ] Error states and retry on failed requests
+- [ ] Streaming XML ingestion (lxml) to replace the manual seed load
+- [ ] MySQL FULLTEXT search replacing `LIKE` matching
+- [ ] Docker
+- [ ] HTTPS and a persistent public URL
