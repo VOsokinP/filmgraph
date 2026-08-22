@@ -1,16 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { apiGet } from '../api/client';
-
-interface CartCountState {
-  count: number;
-  refreshCount: () => Promise<void>;
-}
-
-const CartCountContext = createContext<CartCountState>({
-  count: 0,
-  refreshCount: async () => {},
-});
+import { CartCountContext } from './CartCountContext';
 
 export function CartCountProvider({ children }: { children: ReactNode }) {
   const [count, setCount] = useState(0);
@@ -32,5 +23,3 @@ export function CartCountProvider({ children }: { children: ReactNode }) {
     <CartCountContext.Provider value={{ count, refreshCount }}>{children}</CartCountContext.Provider>
   );
 }
-
-export const useCartCount = () => useContext(CartCountContext);

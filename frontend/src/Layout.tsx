@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom';
 
 import { useAuth } from './auth/AuthContext';
-import { CartCountProvider, useCartCount } from './cart/CartCountContext';
+import { CartCountProvider } from './cart/CartCountProvider';
+import { useCartCount } from './cart/CartCountContext';
 import { apiPost } from './api/client';
 import Button from './components/ui/Button';
 import { CartIcon, FilmIcon, LogOutIcon } from './components/ui/Icons';
