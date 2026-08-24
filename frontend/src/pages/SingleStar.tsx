@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import { ChevronLeftIcon, FilmIcon } from '../components/ui/Icons';
-import { apiGet } from '../api/client';
+import { apiGet, errorMessage, isAuthRedirect } from '../api/client';
 
 interface StarDetail {
     id: string;
@@ -17,10 +18,29 @@ export default function SingleStar() {
     const location = useLocation();
     const backTo = (location.state as { from?: string } | null)?.from ?? "/";
     const [star, setStar] = useState<StarDetail | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        apiGet<StarDetail>(`/stars/${id}`).then(setStar);
+    const load = useCallback(() => {
+        let cancelled = false;
+        setError(null);
+        setStar(null);
+        apiGet<StarDetail>(`/stars/${id}`)
+            .then((result) => {
+                if (!cancelled) setStar(result);
+            })
+            .catch((err) => {
+                if (!cancelled && !isAuthRedirect(err)) setError(errorMessage(err));
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
+
+    useEffect(load, [load]);
+
+    if (error) {
+        return <ErrorState message={error} onRetry={load} />;
+    }
 
     if (!star) {
         return (

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { apiDelete, apiGet, apiPost } from "../api/client";
+import { apiDelete, apiGet, apiPost, errorMessage, isAuthRedirect } from "../api/client";
 import { useCartCount } from "../cart/CartCountContext";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
-import { CartIcon, ChevronLeftIcon, MinusIcon, PlusIcon } from "../components/ui/Icons";
+import ErrorState from "../components/ui/ErrorState";
+import { AlertIcon, CartIcon, ChevronLeftIcon, MinusIcon, PlusIcon } from "../components/ui/Icons";
 
 interface CartLine {
   movie_id: string;
@@ -21,22 +22,39 @@ interface CartOut {
 
 export default function Cart() {
     const [cart, setCart] = useState<CartOut | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
     const [busy, setBusy] = useState(false);
     const { refreshCount } = useCartCount();
     const navigate = useNavigate();
 
-    const load = useCallback(() => apiGet<CartOut>("/cart").then(setCart), []);
+    const load = useCallback(async () => {
+        setLoadError(null);
+        try {
+            setCart(await apiGet<CartOut>("/cart"));
+        } catch (err) {
+            if (!isAuthRedirect(err)) setLoadError(errorMessage(err));
+        }
+    }, []);
+
+    const reload = useCallback(() => {
+        setCart(null);
+        void load();
+    }, [load]);
 
     useEffect(() => {
-        load();
+        void load();
     }, [load]);
 
     const mutate = async (action: () => Promise<unknown>) => {
         setBusy(true);
+        setActionError(null);
         try {
             await action();
             await load();
             await refreshCount();
+        } catch (err) {
+            if (!isAuthRedirect(err)) setActionError(errorMessage(err));
         } finally {
             setBusy(false);
         }
@@ -46,6 +64,10 @@ export default function Cart() {
         mutate(() => apiPost("/cart/items", { movie_id: movieId, delta }));
 
     const removeItem = (movieId: string) => mutate(() => apiDelete(`/cart/items/${movieId}`));
+
+    if (loadError) {
+        return <ErrorState message={loadError} title="Couldn't load your cart" onRetry={reload} />;
+    }
 
     if (!cart) {
         return (
@@ -73,6 +95,13 @@ export default function Cart() {
                     </p>
                 )}
             </div>
+
+            {actionError && (
+                <p className="alert alert--error" role="alert">
+                    <AlertIcon size={16} className="alert__icon" />
+                    {actionError}
+                </p>
+            )}
 
             {cart.items.length === 0 ? (
                 <div className="panel">

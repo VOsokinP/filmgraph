@@ -2,7 +2,7 @@ import { useState, type SubmitEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
-import { apiPost } from '../api/client';
+import { apiPost, errorMessage } from '../api/client';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
 import { AlertIcon, FilmIcon } from '../components/ui/Icons';
@@ -23,8 +23,8 @@ export default function Login() {
             await apiPost('/auth/login', { email, password });
             await refresh();
             navigate('/');
-        } catch {
-            setError('Invalid email or password');
+        } catch (err) {
+            setError(errorMessage(err));
         } finally {
             setPending(false);
         }

@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import AddToCartButton from "../components/AddToCartButton";
 import SearchForm from "../components/SearchForm";
 import Button from "../components/ui/Button";
 import EmptyState from "../components/ui/EmptyState";
+import ErrorState from "../components/ui/ErrorState";
 import {
     ChevronLeftIcon,
     ChevronRightIcon,
@@ -11,7 +12,7 @@ import {
     SearchIcon,
     SortIcon,
 } from "../components/ui/Icons";
-import { apiGet } from "../api/client";
+import { apiGet, errorMessage, isAuthRedirect } from "../api/client";
 
 
 interface Genre { id: number; name: string }
@@ -47,6 +48,7 @@ export default function MovieList() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [data, setData] = useState<MovieListResponse | null>(null);
     const [genres, setGenres] = useState<Genre[]>([]);
+    const [error, setError] = useState<string | null>(null);
 
     const page = Number(searchParams.get("page") ?? "1");
     const sortBy = searchParams.get("sortBy") ?? "rating";
@@ -56,13 +58,28 @@ export default function MovieList() {
     const [browseOpen, setBrowseOpen] = useState(Boolean(activeGenreId || activeLetter));
 
     useEffect(() => {
-        apiGet<Genre[]>("/genres").then(setGenres);
+        apiGet<Genre[]>("/genres")
+            .then(setGenres)
+            .catch(() => setGenres([]));
     }, []);
 
-    useEffect(() => {
+    const load = useCallback(() => {
+        let cancelled = false;
+        setError(null);
         setData(null);
-        apiGet<MovieListResponse>(`/movies?${searchParams.toString()}`).then(setData);
+        apiGet<MovieListResponse>(`/movies?${searchParams.toString()}`)
+            .then((result) => {
+                if (!cancelled) setData(result);
+            })
+            .catch((err) => {
+                if (!cancelled && !isAuthRedirect(err)) setError(errorMessage(err));
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [searchParams]);
+
+    useEffect(load, [load]);
 
     const updateParam = (key: string, value: string) => {
         const next = new URLSearchParams(searchParams);
@@ -252,7 +269,9 @@ export default function MovieList() {
                 )}
             </div>
 
-            {data && data.items.length === 0 ? (
+            {error ? (
+                <ErrorState message={error} title="Couldn't load the movie list" onRetry={load} />
+            ) : data && data.items.length === 0 ? (
                 <div className="panel">
                     <EmptyState
                         icon={<SearchIcon size={32} />}
