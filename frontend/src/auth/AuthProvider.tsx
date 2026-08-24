@@ -1,17 +1,21 @@
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { apiGet } from '../api/client';
+import { ApiError, apiGet, errorMessage } from '../api/client';
 import { AuthContext, type Customer } from './AuthContext';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [customer, setCustomer] = useState<Customer | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     const refresh = async () => {
+        setLoading(true);
+        setError(null);
         try {
-            setCustomer(await apiGet<Customer>('/auth/me'));
-        } catch {
+            setCustomer(await apiGet<Customer>('/auth/me', { redirectOn401: false }));
+        } catch (err) {
             setCustomer(null);
+            if (!(err instanceof ApiError && err.status === 401)) setError(errorMessage(err));
         } finally {
             setLoading(false);
         }
@@ -21,5 +25,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refresh();
     }, []);
 
-    return <AuthContext.Provider value={{ customer, loading, refresh }}>{children}</AuthContext.Provider>;
+    return (
+        <AuthContext.Provider value={{ customer, loading, error, refresh }}>{children}</AuthContext.Provider>
+    );
 }

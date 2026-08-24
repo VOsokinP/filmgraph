@@ -5,6 +5,7 @@ import ProtectedRoute from "./auth/ProtectedRoute";
 import Layout from "./Layout";
 import Login from "./pages/Login";
 import MovieList from "./pages/MovieList";
+import NotFound from "./pages/NotFound";
 import SingleMovie from "./pages/SingleMovie";
 import SingleStar from "./pages/SingleStar";
 
@@ -28,6 +29,7 @@ export default function App() {
               <Route path="/confirmation/:orderId" element={<Confirmation />} />
             </Route>
           </Route>
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>

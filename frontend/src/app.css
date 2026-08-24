@@ -83,6 +83,12 @@
   white-space: nowrap;
 }
 
+.app-header__logout-error {
+  font-size: var(--text-sm);
+  color: var(--danger);
+  white-space: nowrap;
+}
+
 @media (max-width: 720px) {
   .app-header__inner {
     flex-wrap: wrap;

@@ -12,17 +12,22 @@ function Header() {
   const { customer, refresh } = useAuth();
   const { count } = useCartCount();
   const [loggingOut, setLoggingOut] = useState(false);
+  const [logoutFailed, setLogoutFailed] = useState(false);
   const navigate = useNavigate();
 
   const logout = async () => {
     setLoggingOut(true);
+    setLogoutFailed(false);
     try {
       await apiPost('/auth/logout');
-      await refresh();
-      navigate('/login');
+    } catch {
+      setLogoutFailed(true);
+      return;
     } finally {
       setLoggingOut(false);
     }
+    await refresh();
+    navigate('/login');
   };
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
@@ -62,6 +67,11 @@ function Header() {
             <LogOutIcon size={14} />
             Log out
           </Button>
+          {logoutFailed && (
+            <span className="app-header__logout-error" role="alert">
+              Log out failed — still signed in
+            </span>
+          )}
         </div>
       </div>
     </header>

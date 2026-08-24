@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import AddToCartButton from '../components/AddToCartButton';
+import ErrorState from '../components/ui/ErrorState';
 import { ChevronLeftIcon } from '../components/ui/Icons';
-import { apiGet } from '../api/client';
+import { apiGet, errorMessage, isAuthRedirect } from '../api/client';
 
 interface MovieDetail {
     id: string;
@@ -20,10 +21,29 @@ export default function SingleMovie() {
     const location = useLocation();
     const backTo = (location.state as { from?: string } | null)?.from ?? "/";
     const [movie, setMovie] = useState<MovieDetail | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        apiGet<MovieDetail>(`/movies/${id}`).then(setMovie);
+    const load = useCallback(() => {
+        let cancelled = false;
+        setError(null);
+        setMovie(null);
+        apiGet<MovieDetail>(`/movies/${id}`)
+            .then((result) => {
+                if (!cancelled) setMovie(result);
+            })
+            .catch((err) => {
+                if (!cancelled && !isAuthRedirect(err)) setError(errorMessage(err));
+            });
+        return () => {
+            cancelled = true;
+        };
     }, [id]);
+
+    useEffect(load, [load]);
+
+    if (error) {
+        return <ErrorState message={error} onRetry={load} />;
+    }
 
     if (!movie) {
         return (

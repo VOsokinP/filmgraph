@@ -136,6 +136,23 @@ def _seed():
 
 
 @pytest.fixture()
+def db_conn():
+    with engine.connect() as conn:
+        yield conn
+
+
+@pytest.fixture()
+def clean_orders():
+    with engine.begin() as conn:
+        orders_mark = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM orders")).scalar_one()
+        sales_mark = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM sales")).scalar_one()
+    yield orders_mark
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM sales WHERE id > :mark"), {"mark": sales_mark})
+        conn.execute(text("DELETE FROM orders WHERE id > :mark"), {"mark": orders_mark})
+
+
+@pytest.fixture()
 def client():
     with TestClient(app) as c:
         yield c
