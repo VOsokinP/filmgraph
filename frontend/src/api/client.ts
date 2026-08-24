@@ -35,7 +35,15 @@ export function errorMessage(error: unknown): string {
     return "Something went wrong. Please try again.";
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export interface RequestOptions {
+    redirectOn401?: boolean;
+}
+
+async function request<T>(
+    path: string,
+    options: RequestInit = {},
+    { redirectOn401 = true }: RequestOptions = {},
+): Promise<T> {
     let response: Response;
     try {
         response = await fetch(`${API_BASE}${path}`, {
@@ -61,7 +69,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         const body = await response.json().catch(() => null);
         const detail = (body as { detail?: unknown } | null)?.detail;
         const message = typeof detail === "string" ? detail : statusMessage(response.status);
-        if (response.status === 401 && window.location.pathname !== "/login") {
+        if (redirectOn401 && response.status === 401 && window.location.pathname !== "/login") {
             window.location.href = "/login";
         }
         throw new ApiError(message, response.status);
@@ -71,7 +79,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     return response.json();
 }
 
-export const apiGet = <T,>(path: string) => request<T>(path);
+export const apiGet = <T,>(path: string, opts?: RequestOptions) => request<T>(path, {}, opts);
 export const apiPost = <T,>(path: string, data?: unknown) =>
     request<T>(path, { method: "POST", body: data ? JSON.stringify(data) : undefined });
 export const apiDelete = <T,>(path: string) => request<T>(path, { method: "DELETE" });

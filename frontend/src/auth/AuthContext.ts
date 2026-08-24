@@ -10,12 +10,14 @@ export interface Customer {
 export interface AuthState {
     customer: Customer | null;
     loading: boolean;
+    error: string | null;
     refresh: () => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthState>({
     customer: null,
     loading: true,
+    error: null,
     refresh: async () => {},
 });
 
