@@ -197,7 +197,9 @@ EnvironmentFile=/home/ubuntu/filmgraph/backend/.env
 ExecStart=/home/ubuntu/filmgraph/backend/.venv/bin/gunicorn app.main:app \
     -k uvicorn.workers.UvicornWorker \
     --workers 2 \
-    --bind 127.0.0.1:8000
+    --bind 127.0.0.1:8000 \
+    --access-logfile - \
+    --error-logfile -
 Restart=always
 RestartSec=5
 
@@ -212,6 +214,9 @@ Notes on the parts most likely to be misconfigured:
   the same machine (step 8), never directly from the internet.
 - `Restart=always` means a crash restarts the service instead of leaving the site down until someone
   notices.
+- `--access-logfile -` / `--error-logfile -` send gunicorn's logs to stdout, which systemd captures
+  into the journal. Without them a 401 or a 500 produces **zero** journal output and debugging is
+  guesswork — that cost real time during the 2026-08-21 deploy.
 
 ```bash
 sudo systemctl daemon-reload
@@ -363,33 +368,111 @@ certificates (via `certbot`) require a domain, not a bare IP:
 
 ## 11. Redeploying after changes
 
+Run these in order. Steps 2 and 3 are cheap, idempotent, and **not optional** — every failed deploy
+so far has been the server disagreeing with the repo, with nothing checking.
+
+### 11.1 Pull
+
 ```bash
 ssh -i your-key.pem ubuntu@<elastic-ip>
-cd filmgraph
+cd ~/filmgraph
 git pull
 ```
 
-If backend dependencies changed:
+`git pull` here puts whatever is on `main` straight onto a running production service, which is why
+every commit on `main` should leave the app in a working state.
+
+### 11.2 Sync backend dependencies — every time, not conditionally
+
 ```bash
-cd backend && source .venv/bin/activate && pip install -e . && cd ..
+cd ~/filmgraph/backend
+source .venv/bin/activate
+pip install -e .
+```
+
+Run this on every deploy, including the ones where you're sure nothing changed. It's idempotent and
+takes seconds when there's nothing to do. The conditional version ("only if dependencies changed")
+is a trap: it's only safe if the server was already in sync, and nothing verifies that. A stale venv
+is what produced `ModuleNotFoundError: itsdangerous` at worker boot.
+
+### 11.3 Check `.env` against `.env.example`
+
+```bash
+diff <(grep -oE '^[A-Z_]+' .env.example | sort) <(grep -oE '^[A-Z_]+' .env | sort)
+```
+
+No output means the server has every key the repo expects. A line starting with `<` is a variable
+the repo template defines and the server is missing. `app/config.py` gives `JWT_SECRET_KEY` and
+`SESSION_SECRET_KEY` no defaults, so a missing key is a Pydantic `ValidationError` at import — the
+app never starts and every request 500s or hangs. Generate anything missing, **one secret at a
+time**:
+
+```bash
+[ -n "$(tail -c1 .env)" ] && echo >> .env      # don't glue the key onto the last line
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
+python3 -c "import secrets; print('SESSION_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
+chmod 600 .env
+```
+
+Never reuse one value for both — they sign different things (JWT = identity, session cookie = cart),
+so a shared secret means a weakness in either compromises both. `token_urlsafe` is deliberate over
+`openssl rand -base64`: it emits only `[A-Za-z0-9_-]`, with nothing systemd's `EnvironmentFile`
+parser could misread as quoting.
+
+### 11.4 Restart the backend and prove it booted
+
+```bash
 sudo systemctl restart filmgraph-api
+sudo systemctl status filmgraph-api        # want "active (running)"
+curl -i http://127.0.0.1:8000/health       # want 200 — this is the real gate
 ```
-If only backend code changed (no new dependencies), the restart alone is enough — no rebuild step
-exists for Python.
 
-If frontend code changed:
+`active (running)` only means systemd started a process. `/health` returning 200 is the only thing
+that proves the app imported its settings, reached MySQL, and can serve a request.
+
+### 11.5 Rebuild the frontend — only if frontend code changed
+
 ```bash
-cd frontend && npm ci && npm run build && cd ..
+free -h        # if Swap shows 0B, add swap (step 7) before building
+cd ~/filmgraph/frontend
+npm ci
+npm run build
+grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked into the build" || echo "clean"
 ```
-No service restart needed for the frontend — Nginx serves whatever's currently in `dist/` on the
-next request.
 
-This is why every commit on `main` should leave the app in a working state: `git pull` on this
-server pulls whatever's on `main` directly onto a running production service.
+No service restart needed — Nginx serves whatever is in `dist/` on the next request. On a 1 GB
+`t2.micro`/`t3.micro` the TypeScript compile is the step most likely to be OOM-killed; see step 7.
+
+### 11.6 Watch the logs while you click through
+
+```bash
+sudo journalctl -u filmgraph-api -f
+```
+
+Leave this running in a second SSH session while you exercise the site in a browser. With
+`--access-logfile -` on the unit (step 6), every request appears here with its status code.
 
 ## Troubleshooting checklist
 
-Mistakes worth checking first, since each one can leave the app looking "almost working":
+### Reading the logs
+
+Start here, not with guesses. The API logs to the systemd journal:
+
+```bash
+sudo journalctl -u filmgraph-api -f                    # follow live
+sudo journalctl -u filmgraph-api -n 100 --no-pager     # last 100 lines
+sudo journalctl -u filmgraph-api -p err --no-pager     # errors only
+sudo journalctl -u filmgraph-api --since "10 min ago" --no-pager
+sudo tail -f /var/log/nginx/error.log                  # 500s that never reached the app
+sudo tail -f /var/log/nginx/access.log
+```
+
+If the API journal is empty while requests are clearly arriving, the request isn't reaching the app
+at all — check Nginx's logs and the `proxy_pass` target (step 8).
+
+### Mistakes worth checking first
+
+Each one can leave the app looking "almost working":
 
 - Security group or MySQL `bind-address` exposing the database to the public internet (steps 1, 4).
 - `EnvironmentFile` missing from the systemd unit, so the app can't find `DATABASE_URL` and
@@ -406,3 +489,8 @@ Mistakes worth checking first, since each one can leave the app looking "almost 
 - Installing packages before enabling the `universe` apt component, producing `Unable to locate
   package` errors for `python3-pip`, `python3-venv`, `nodejs`, and `npm` (step 3).
 - Reusing the local dev database password in production (step 4).
+- Server `.env` drifted from `.env.example`, so a required setting has no value and `Settings` fails
+  Pydantic validation at import — the service crash-loops and every request 500s or hangs. The
+  `diff` in step 11.3 catches this in one command (step 11).
+- Server venv drifted from `pyproject.toml`, producing `ModuleNotFoundError` at worker boot. The
+  unconditional `pip install -e .` in step 11.2 prevents it (step 11).
