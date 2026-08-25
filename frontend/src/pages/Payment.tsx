@@ -102,7 +102,7 @@ export default function Payment() {
             Place order
           </Button>
           <p className="buybox__note">
-            Mock checkout — card details are validated against seeded test data, and no real payment
+            Mock checkout. Card details are validated against seeded test data, and no real payment
             is processed.
           </p>
         </form>

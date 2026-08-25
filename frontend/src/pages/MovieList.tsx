@@ -356,7 +356,7 @@ export default function MovieList() {
                                                   ))}
                                               </span>
                                           </td>
-                                          <td className="num">{m.rating?.toFixed(1) ?? "—"}</td>
+                                          <td className="num">{m.rating?.toFixed(1) ?? "-"}</td>
                                           <td className="num">${m.price.toFixed(2)}</td>
                                           <td className="shrink">
                                               <AddToCartButton movieId={m.id} />

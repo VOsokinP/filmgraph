@@ -69,7 +69,7 @@ function Header() {
           </Button>
           {logoutFailed && (
             <span className="app-header__logout-error" role="alert">
-              Log out failed — still signed in
+              Log out failed, still signed in
             </span>
           )}
         </div>

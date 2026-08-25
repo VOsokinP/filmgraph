@@ -20,7 +20,7 @@ export default function Confirmation() {
   const confirmation = location.state as ConfirmationState | undefined;
 
   if (!confirmation) {
-    // Direct visit or a refresh — router state doesn't survive either. A future
+    // Direct visit or a refresh; router state doesn't survive either. A future
     // GET /api/orders/{id} endpoint would fix this properly; noted as a follow-up, not built here.
     return (
       <div className="narrow">

@@ -114,7 +114,7 @@ export default function SingleMovie() {
                         <span className="buybox__price">${movie.price.toFixed(2)}</span>
                     </div>
                     <AddToCartButton movieId={movie.id} variant="primary" size="md" />
-                    <p className="buybox__note">Mock checkout — no real payment is processed.</p>
+                    <p className="buybox__note">Mock checkout. No real payment is processed.</p>
                 </aside>
             </div>
         </>

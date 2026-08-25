@@ -17,10 +17,10 @@ class MovieBase(BaseModel):
     price: float
 
 class MovieListItem(MovieBase):
-    """One row of GET /api/movies — genres/stars truncated to 3 by the query"""
+    """One row of GET /api/movies: genres/stars truncated to 3 by the query"""
 
 class MovieDetail(MovieBase):
-    """GET /api/movies/{id} — genres/stars never truncated."""
+    """GET /api/movies/{id}: genres/stars never truncated."""
 
 class MovieListResponse(BaseModel):
     """The full GET /api/movies response, including pagination info."""
