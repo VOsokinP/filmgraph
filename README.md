@@ -36,10 +36,47 @@ in a transaction that rolls back if any insert fails. Payment is mocked; no real
 | Frontend | React 19, TypeScript, Vite, react-router-dom 7, oxlint. No CSS framework or component library - plain CSS driven by custom properties |
 | Database | MySQL 8 |
 | Tests / CI | pytest against a real MySQL schema, GitHub Actions |
+| Containers | Docker multi-stage build, Compose stack for API + MySQL 8 |
 | Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers |
 
 
 ## Getting Started
+
+Two paths. Docker is faster and needs nothing installed but Docker itself; the local install is
+what you want if you're going to work on the code.
+
+## Option A - Docker (API + database)
+
+```bash
+docker compose up --build
+```
+
+Starts MySQL 8 with a persistent volume, waits for its healthcheck, applies `alembic upgrade head`,
+and serves the API on <http://localhost:8000> (docs at `/docs`). MySQL is published on **3307** so
+it won't collide with a local MySQL on 3306.
+
+Seed data isn't loaded automatically. Download it (step 3 below), then:
+
+```bash
+{ echo "SET autocommit=0; SET foreign_key_checks=0; START TRANSACTION;"; \
+  cat backend/db/movie-data.sql; \
+  echo "COMMIT;"; } | docker compose exec -T db mysql -u appuser -pdevpass moviedb
+```
+
+One transaction instead of ~174k autocommits: far faster, and all-or-nothing, so an interrupted
+load rolls back rather than leaving a half-populated database.
+
+```bash
+docker compose logs -f backend   # follow the API
+docker compose down              # stop, keep the data
+docker compose down -v           # stop and wipe the database volume
+```
+
+The frontend isn't containerized - run it with `npm run dev` (step 4). Compose ships dev-only
+default secrets so a clean clone needs no setup; production injects real values through the
+environment.
+
+## Option B - Local install
 
 Requires Python ≥3.11, Node ≥20, and MySQL 8.
 
@@ -79,6 +116,14 @@ place it at `backend/db/movie-data.sql`, then:
 ```bash
 mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
 ```
+
+A clean exit code doesn't prove every row landed - check one table before trusting the load:
+
+```bash
+mysql -u appuser -p moviedb -e "SELECT COUNT(*) FROM movies;"   # expect 9052
+```
+
+Full per-table counts are in [`DEPLOYMENT.md`](./DEPLOYMENT.md) step 5.
 
 ### 4. Frontend
 
@@ -140,13 +185,7 @@ One AWS EC2 instance (`t3.micro`, Ubuntu 24.04): Nginx serves the built frontend
 `/api/...` to Gunicorn/Uvicorn on `127.0.0.1:8000`.
 The backend runs under systemd and restarts on crash or reboot.
 
-Full walkthrough in [`DEPLOYMENT.md`](./DEPLOYMENT.md). Redeploy:
-
-```bash
-git pull
-cd backend  && pip install -e . && sudo systemctl restart filmgraph-api
-cd frontend && npm ci && npm run build          # Nginx serves dist/ directly, no restart
-```
+Full walkthrough and the redeploy runbook are in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
 
 **Live demo:** the instance runs on demand rather than continuously, so there's no permanent public
 link yet. Available on request for a walkthrough.
@@ -170,6 +209,8 @@ frontend/src/
   cart/           # CartCountContext + CartCountProvider
   api/client.ts
 deploy/           # systemd unit + nginx config
+backend/Dockerfile        # multi-stage: build venv, ship runtime only
+docker-compose.yml        # local stack - API + MySQL 8
 ```
 
 ## Roadmap
@@ -181,8 +222,8 @@ deploy/           # systemd unit + nginx config
 - [x] Cart and transactional checkout
 - [x] Deployed to AWS EC2 behind Nginx + systemd
 - [x] pytest suite against a real MySQL schema, GitHub Actions CI
-- [ ] Error states and retry on failed requests
+- [x] Error states and retry on every failed request
 - [ ] Streaming XML ingestion (lxml) to replace the manual seed load
 - [ ] MySQL FULLTEXT search replacing `LIKE` matching
-- [ ] Docker
+- [x] Docker - multi-stage image (334 MB runtime, down from 771 MB) + Compose stack
 - [ ] HTTPS and a persistent public URL

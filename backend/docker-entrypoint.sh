@@ -1,6 +1,8 @@
 #!/bin/sh
 set -e
 
-alembic upgrade head
+if [ "$1" = "uvicorn" ]; then
+    alembic upgrade head
+fi
 
 exec "$@"

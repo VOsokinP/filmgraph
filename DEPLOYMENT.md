@@ -1,95 +1,68 @@
 # Deployment Guide
 
-Step-by-step instructions for deploying FilmGraph to a single AWS EC2 instance: the same app that
-runs locally, reachable at a public IP, running as background services that survive a reboot or an
-SSH disconnect. No Docker or Kubernetes here — a single plain EC2 instance is the right amount of
-infrastructure for this stage of the project.
+Deploying FilmGraph to a single AWS EC2 instance, running as background services that survive a
+reboot or an SSH disconnect. No Docker or Kubernetes - one plain instance is the right amount of
+infrastructure for this stage.
 
-Follow the sections in order; each one exists because skipping it is a common way first deploys
-break.
+**Sections 1-10 are first-time setup. [Section 11](#11-redeploying) is the runbook you'll actually
+use day to day.** Long explanations live in the [appendix](#appendix--why-these-steps-exist) so the
+command path stays scannable; each step links to its own note.
 
-**Prerequisites:** an AWS account, this repo pushed to GitHub, and `movie-data.sql` available (see
-the Database Setup section of the main README).
+**Prerequisites:** an AWS account, the repo on GitHub, and `movie-data.sql` from
+[Releases](https://github.com/VOsokinP/FilmGraph/releases).
+
+---
 
 ## 1. Launch the EC2 instance
 
-1. In the AWS Console, go to **EC2 → Launch Instance**.
-2. **AMI:** Ubuntu Server 24.04 LTS. Check the AMI picker's **Free tier eligible** tag before
-   launching — AWS periodically changes which LTS version carries it.
-3. **Instance type:** `t3.micro` or `t2.micro` (free-tier eligible) — plenty for a read-only,
-   3-page app.
-4. **Key pair:** create a new one and download the `.pem` file. AWS won't let you re-download it
-   later, so save it somewhere safe outside this repo — never commit it.
-5. **Storage:** the default 8 GB gp3 is fine.
-6. **Security group** — this is the step most first deploys get wrong. Create a new security group
-   with exactly these inbound rules:
-   - **SSH (22)** — source: **My IP**, not `0.0.0.0/0`. If your IP changes later you'll need to
-     edit this rule to reconnect; that's expected and safer than leaving SSH open to the internet.
-   - **HTTP (80)** — source: `0.0.0.0/0`. This is the one port meant to be public.
-   - **Leave 3306 (MySQL) and 8000 (FastAPI) closed to the internet entirely.** The database is
-     only ever accessed from `localhost` on the same instance, and the API is only ever reached
-     through Nginx on port 80 (step 8) — neither needs a public inbound rule. Opening 3306 or 8000
-     to `0.0.0.0/0` is the single most common mistake in a first EC2 deploy, and it directly exposes
-     the database or an unauthenticated API to the internet.
-7. Launch the instance. Then go to **Elastic IPs**, allocate one, and **Actions → Associate Elastic
-   IP address**:
-   - **Resource type:** `Instance`.
-   - **Instance:** the one you just launched.
-   - **Private IP address:** leave blank.
-   - **Reassociation:** leave checked (default).
-   - Click **Associate**.
+In **EC2 → Launch Instance**:
 
-   Without an Elastic IP, the instance's public IP changes every time you stop/start it, silently
-   breaking any link or bookmark pointing at the old one.
+| Setting | Value |
+|---|---|
+| AMI | Ubuntu Server 24.04 LTS (confirm the **Free tier eligible** tag - AWS moves it between releases) |
+| Instance type | `t3.micro` or `t2.micro` |
+| Key pair | Create new, download the `.pem`. AWS won't let you re-download it. Never commit it. |
+| Storage | 8 GB gp3 default |
 
-## 2. Connect and do first-time hardening
+Security group - inbound rules, exactly these:
+
+- **SSH (22)** - source **My IP**, not `0.0.0.0/0`
+- **HTTP (80)** - source `0.0.0.0/0`
+- **3306 and 8000 - closed.** MySQL is reached only from `localhost`; the API only through Nginx.
+  Opening either is the most common first-deploy mistake. [Why →](#a1-the-two-ports-that-must-stay-closed)
+
+Then **Elastic IPs → Allocate → Actions → Associate**, resource type `Instance`, leave private IP
+blank. Without one, the public IP changes on every stop/start.
+
+## 2. Connect and harden
 
 ```bash
 chmod 400 your-key.pem
 ssh -i your-key.pem ubuntu@<elastic-ip>
-```
 
-Once connected:
-
-```bash
 sudo apt update && sudo apt upgrade -y
-```
-
-Turn on the host firewall as a second layer of defense behind the security group:
-
-```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
 sudo ufw enable
-sudo ufw status
 ```
 
-## 3. Install system dependencies
+The host firewall is a second layer behind the security group, not a replacement for it.
 
-EC2's official Ubuntu AMIs ship with only the `main` apt component enabled — `universe` (which holds
-`python3-pip`, `python3-venv`, `nodejs`, and `npm`) is off by default. Skipping this produces
-`Unable to locate package` errors. Enable it first:
+## 3. Install system dependencies
 
 ```bash
 sudo apt install -y software-properties-common
 sudo add-apt-repository universe
 sudo apt update
-```
-
-Then install everything needed:
-
-```bash
 sudo apt install -y python3 python3-venv python3-pip mysql-server nginx git nodejs npm
+node -v          # need 20.19+ or 22.12+; Ubuntu 24.04 ships 22.x
 ```
 
-This deliberately installs plain `python3` (Ubuntu 24.04's default is already 3.12, which satisfies
-the project's 3.11+ requirement) rather than a pinned `python3.11`, which isn't packaged on this
-release at all.
+`universe` must be enabled first or `python3-pip`, `python3-venv`, `nodejs`, and `npm` all fail with
+`Unable to locate package`. Plain `python3` is deliberate - 24.04's default is 3.12, which satisfies
+the project's 3.11+ floor, and `python3.11` isn't packaged on this release.
 
-Check `node -v` — the frontend needs Node 20.19+ or 22.12+. Ubuntu 24.04's apt `nodejs` package
-(v22.x) satisfies this; only reach for `nvm` if your version comes back lower.
-
-## 4. Set up MySQL on the instance
+## 4. Set up MySQL
 
 ```bash
 sudo mysql_secure_installation
@@ -102,88 +75,71 @@ CREATE DATABASE moviedb;
 GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
 ```
 
-Use a **different password than your local `.env`** — production credentials are their own secret,
-never reused from dev.
-
-Confirm MySQL is only listening on `localhost`, not the network interface — check the actual
-listening socket, which is the ground truth regardless of what the config file says:
+Use a **different password than your local `.env`**. Then confirm the listening socket - ground
+truth, regardless of what the config file claims:
 
 ```bash
-sudo ss -tlnp | grep 3306
+sudo ss -tlnp | grep 3306        # want 127.0.0.1:3306, not 0.0.0.0:3306
 ```
 
-You should see `127.0.0.1:3306` (not `0.0.0.0:3306`) next to `mysqld`. Combined with 3306 being
-closed at the security group (step 1), this means the database is unreachable from outside the
-instance even if something else is misconfigured — two independent layers, not one.
+Schema and seed data come in step 5, once Alembic is on the box.
 
-Schema and seed data are applied in step 5, once the repo — and its Alembic migrations — are
-actually on the instance. Nothing to load here yet.
-
-## 5. Clone the repo, configure the environment, and apply the schema
+## 5. Clone, configure, and load data
 
 ```bash
 git clone <your-repo-url>
-cd filmgraph
-```
-
-If the repo is private, use a GitHub personal access token or an SSH deploy key for the clone —
-don't put your personal SSH key on a server.
-
-```bash
-cd backend
+cd filmgraph/backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e .
 ```
 
-Create `backend/.env` **directly on the instance** (it's gitignored — it never travels through
-git):
+Create `backend/.env` **on the instance** - it's gitignored and never travels through git:
 
 ```
-DATABASE_URL=mysql+pymysql://appuser:ChooseADifferentPasswordThanLocal!@localhost:3306/moviedb
+DATABASE_URL=mysql+pymysql://appuser:<the password from step 4>@localhost:3306/moviedb
+JWT_SECRET_KEY=<generate>
+SESSION_SECRET_KEY=<generate a different one>
 ```
 
-**Apply the schema and load seed data.** `movie-data.sql` isn't in the repo (too large for git,
-distributed as a GitHub Release asset instead) — pull it down now that `backend/db/` exists:
+```bash
+[ -n "$(tail -c1 .env)" ] && echo >> .env
+python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
+python3 -c "import secrets; print('SESSION_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
+chmod 600 .env
+```
+
+Generate the two separately - they sign different things.
+[Why →](#a2-two-secrets-never-one)
+
+Schema and seed data:
 
 ```bash
 wget -O db/movie-data.sql \
-  https://github.com/VOsokinP/filmgraph/releases/download/v1.0-seed-data/movie-data.sql
-```
-
-```bash
+  https://github.com/VOsokinP/FilmGraph/releases/download/v1.0-seed-data/movie-data.sql
 alembic upgrade head
-mysql -u appuser -p moviedb < db/movie-data.sql
+mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
 ```
 
-**If `movie-data.sql` includes tables outside this schema** (e.g. `creditcards`/`customers`/`sales`
-from the original dataset this was sourced from — not part of FilmGraph's schema), `mysql` aborts
-the entire script on the first error when run without `--force`, so an unsupported-table insert
-ahead of `ratings` in the file silently prevents `ratings` from loading at all, even though the
-command exits looking like it worked. Rather than editing the dump, pull just the missing table's
-inserts out and pipe them in directly:
+**Verify the row counts** - a clean exit code doesn't prove every row landed.
+[Why →](#a3-seed-data-has-no-integrity-check)
 
 ```bash
-grep -i "^INSERT INTO ratings" db/movie-data.sql | mysql -u appuser -p moviedb
+mysql -u appuser -p moviedb -e "
+SELECT 'movies' t, COUNT(*) n FROM movies UNION ALL SELECT 'stars', COUNT(*) FROM stars
+UNION ALL SELECT 'stars_in_movies', COUNT(*) FROM stars_in_movies
+UNION ALL SELECT 'genres_in_movies', COUNT(*) FROM genres_in_movies
+UNION ALL SELECT 'ratings', COUNT(*) FROM ratings
+UNION ALL SELECT 'creditcards', COUNT(*) FROM creditcards
+UNION ALL SELECT 'customers', COUNT(*) FROM customers
+UNION ALL SELECT 'genres', COUNT(*) FROM genres;"
 ```
 
-Verify with `SELECT COUNT(*) FROM ratings;` after any bulk load — a clean exit code doesn't
-guarantee every row loaded.
+Expected: 9052 / 60150 / 79921 / 15615 / 7998 / 517 / 453 / 23. Anything short means a partial load.
 
-## 6. Run the backend as a systemd service
+## 6. Run the backend under systemd
 
-Running `uvicorn` by hand over SSH only works until you disconnect — the process dies with the
-shell session. A systemd unit keeps it running permanently, restarts it if it crashes, and starts it
-on reboot.
-
-Add `gunicorn` to manage multiple Uvicorn worker processes, so one slow request doesn't block every
-other request:
-
-```bash
-pip install gunicorn
-```
-
-Create `/etc/systemd/system/filmgraph-api.service`:
+Create `/etc/systemd/system/filmgraph-api.service` (the repo copy is `deploy/filmgraph-api.service`):
 
 ```ini
 [Unit]
@@ -207,74 +163,52 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-Notes on the parts most likely to be misconfigured:
-- `EnvironmentFile` is what makes `DATABASE_URL` visible to the process — forgetting this line is
-  the most common cause of a service that starts, then immediately crash-loops.
-- `--bind 127.0.0.1:8000`, not `0.0.0.0:8000` — the backend should only be reachable from Nginx on
-  the same machine (step 8), never directly from the internet.
-- `Restart=always` means a crash restarts the service instead of leaving the site down until someone
-  notices.
-- `--access-logfile -` / `--error-logfile -` send gunicorn's logs to stdout, which systemd captures
-  into the journal. Without them a 401 or a 500 produces **zero** journal output and debugging is
-  guesswork — that cost real time during the 2026-08-21 deploy.
-
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable filmgraph-api
-sudo systemctl start filmgraph-api
+sudo systemctl enable --now filmgraph-api
 sudo systemctl status filmgraph-api
+sudo journalctl -u filmgraph-api -n 50 --no-pager     # if it isn't active (running)
 ```
 
-If it's not `active (running)`, check the actual error first:
+The four lines most likely to be wrong:
+
+| Line | Why it matters |
+|---|---|
+| `EnvironmentFile` | Without it the app can't see `DATABASE_URL` and crash-loops |
+| `--bind 127.0.0.1:8000` | Not `0.0.0.0` - the API is reachable only through Nginx |
+| `--access-logfile -` | Without it a 401 or 500 produces **zero** journal output. [Why →](#a4-logs-you-dont-have) |
+| `Restart=always` | A crash restarts instead of leaving the site down |
+
+`gunicorn` is declared in `pyproject.toml`, so step 5's `pip install -e .` already installed it.
+Don't install it ad hoc. [Why →](#a5-the-drift-class)
+
+## 7. Build the frontend
 
 ```bash
-sudo journalctl -u filmgraph-api -n 50 --no-pager
-```
-
-## 7. Build the frontend for production
-
-No manual edits needed — `frontend/src/api/client.ts` reads its API base URL from
-`import.meta.env.VITE_API_BASE`, and Vite automatically loads `frontend/.env.production` (already
-committed) whenever you run `npm run build`, setting it to the relative, same-origin path `/api`.
-This matters because a build with `localhost` baked in would mean every API call from a real
-visitor's browser tries to reach *their own machine*, not the server, and fails silently.
-
-```bash
-cd frontend
+free -h          # if Swap shows 0B, add swap first (below)
+cd ~/filmgraph/frontend
 npm ci
 npm run build
+ls -la dist/index.html
+grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked" || echo "clean"
 ```
 
-This outputs static files to `frontend/dist/`. `npm ci` (not `npm install`) installs exactly what
-`package-lock.json` specifies — reproducible on a server.
+`npm ci`, not `npm install` - it installs exactly what `package-lock.json` pins. No config edits
+needed: `frontend/.env.production` is committed and sets `VITE_API_BASE=/api`, a relative
+same-origin path.
 
-`npm run build` runs in the foreground and returns the prompt when done — it's not a server, so
-there's no need to background it or open a second terminal for it to complete. But on a free-tier
-`t2.micro`/`t3.micro` (1 GB RAM), the TypeScript compile can be slow, or even get silently
-OOM-killed. If it's stuck far longer than expected, open a **separate SSH session** and check
-`free -h` / `top` — if the original session already dropped back to a prompt with `Killed` printed,
-that's the OOM killer, not a hang. Fix with temporary swap if needed:
+On a 1 GB `t2.micro`/`t3.micro` the TypeScript compile can be OOM-killed, which looks like success.
+[Why →](#a6-the-build-that-looks-like-it-worked)
 
 ```bash
-sudo fallocate -l 1G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-```
-
-Then retry the build. Sanity-check the output before moving on:
-
-```bash
-grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked into the build" || echo "clean"
-ls dist/index.html   # confirms the build actually produced output
+sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile
+sudo mkswap /swapfile && sudo swapon /swapfile
 ```
 
 ## 8. Install and configure Nginx
 
-Nginx does two jobs: serves the built frontend's static files, and reverse-proxies `/api/` requests
-to the backend running on `127.0.0.1:8000`.
-
-Create `/etc/nginx/sites-available/filmgraph`:
+Nginx serves the built frontend and reverse-proxies `/api/` to `127.0.0.1:8000`. Create
+`/etc/nginx/sites-available/filmgraph` (repo copy: `deploy/nginx.conf`):
 
 ```nginx
 server {
@@ -298,215 +232,185 @@ server {
 }
 ```
 
-`try_files $uri /index.html` matters because this is a client-side-routed SPA
-(`react-router-dom`'s `<BrowserRouter>`): a direct browser visit to `/movies/mv1` is a real request
-to Nginx for a path that doesn't exist as a file on disk. Without this fallback, that request 404s
-at the Nginx level before React Router gets a chance to handle it — a "works when I click around,
-breaks on refresh or direct link" bug.
-
-**Watch for a home-directory permission trap.** Nginx's worker process runs as `www-data`, but
-Ubuntu's default home directory permissions (`drwxr-x---`, owner-only) block `www-data` from even
-*traversing into* `/home/ubuntu/`. The symptom is distinctive: `/api/...` requests work fine (that's
-proxied straight to the backend, never touches the filesystem), but `/` — and every static file —
-serves Nginx's own 500 error page, even though `nginx -t` passes and the reload succeeds. Confirm
-with:
-
 ```bash
-sudo tail -30 /var/log/nginx/error.log
+sudo ln -s /etc/nginx/sites-available/filmgraph /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t                    # always before reload - a broken config takes the site down
+sudo systemctl reload nginx
 ```
 
-`(13: Permission denied)` confirms it. Fix by opening traverse access on the parent directories:
+Two traps this config addresses, both of which pass `nginx -t` and still break the site:
+
+- `try_files $uri /index.html` - the SPA fallback. Without it, a refresh on `/movies/:id` 404s at
+  Nginx before React Router sees it. [Why →](#a7-the-spa-fallback)
+- `www-data` can't traverse `/home/ubuntu/` by default, so `/api/` works but `/` serves a 500.
+  [Symptom and fix →](#a8-the-home-directory-permission-trap)
+
+## 9. HTTPS
+
+Login posts a password, so **HTTPS is a requirement, not a hardening step** - and HTTPS-first
+browsers can't reliably reach a plain-HTTP bare IP at all. Let's Encrypt won't issue for an IP, so
+a domain comes first:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d yourdomain.com
+```
+
+Certbot adds the certificate, the 80→443 redirect, and auto-renewal. Then open **443** in the
+security group and keep 80 open so the redirect works.
+
+## 10. Verify end-to-end
+
+1. `http://<elastic-ip>/` loads `/login`.
+2. Log in; the movie list returns 10 rows.
+3. Dev tools → Network: API calls go to `/api/...` on the **same origin**, no CORS errors.
+4. Sort by **Year**; click into a movie and a star.
+5. Cart → payment → confirmation writes an order.
+6. **Hard-refresh while on `/cart`** - tests the `try_files` fallback.
+7. Visit `/nope` - the app's own "Page not found", not an Nginx 404.
+8. `sudo systemctl status filmgraph-api nginx` - both `active (running)`.
+9. AWS Console: security group still shows only 22 (your IP), 80, and 443. Nothing else.
+
+---
+
+## 11. Redeploying
+
+The whole runbook. Steps 2-4 are cheap, idempotent, and **not optional** - every failed deploy so
+far has been the server disagreeing with the repo, with nothing checking.
+[Why →](#a5-the-drift-class)
+
+```bash
+# 1. pull
+ssh -i your-key.pem ubuntu@<elastic-ip>
+cd ~/filmgraph
+git rev-parse --short HEAD                  # rollback point - write it down
+git pull
+
+# 2. sync dependencies (every time, not "if they changed")
+cd backend && source .venv/bin/activate && pip install -e .
+
+# 3. prove the settings load
+python3 -c "from app.config import settings; print('config OK')"
+
+# 4. restart, and prove it booted
+sudo systemctl restart filmgraph-api
+sudo systemctl status filmgraph-api         # active (running)
+curl -i http://127.0.0.1:8000/health        # 200 - this is the real gate
+
+# 5. rebuild the frontend, only if frontend code changed
+free -h
+cd ../frontend && npm ci && npm run build
+grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked" || echo "clean"
+
+# 6. watch the journal in a second session while you click through
+sudo journalctl -u filmgraph-api -f
+```
+
+Notes:
+
+- **Step 3** raises the same `ValidationError` the service would hit at boot, naming the exact
+  missing field. Prefer it over diffing `.env` against `.env.example`.
+  [Why →](#a9-check-the-invariant-that-matters)
+- **Step 4:** `active (running)` only means systemd started a process. `/health` returning 200 is
+  what proves the app loaded its settings and reached MySQL.
+- **Step 5** needs no service restart - Nginx serves whatever is in `dist/` on the next request.
+- If a required setting is missing, generate it with the commands in [step 5](#5-clone-configure-and-load-data).
+
+**Rollback:** `git reset --hard <sha>`, rebuild the frontend, restart the service.
+
+---
+
+## Troubleshooting
+
+Start with logs, not guesses:
+
+```bash
+sudo journalctl -u filmgraph-api -f                    # follow live
+sudo journalctl -u filmgraph-api -n 100 --no-pager     # recent history
+sudo journalctl -u filmgraph-api -p err --no-pager     # errors only
+sudo tail -f /var/log/nginx/error.log                  # failures that never reached the app
+sudo tail -f /var/log/nginx/access.log
+```
+
+An empty API journal while requests are clearly arriving means they aren't reaching the app - check Nginx and the `proxy_pass` target.
+
+| Symptom | Likely cause | Step |
+|---|---|---|
+| Service starts then crash-loops | `EnvironmentFile` missing, or a required setting absent from `.env` | 6, 11.3 |
+| `ModuleNotFoundError` at worker boot | Server venv drifted from `pyproject.toml` | 11.2 |
+| `/api/` works, `/` returns 500 | `www-data` can't traverse `/home/ubuntu/`; `(13: Permission denied)` in the Nginx error log | 8 |
+| `rewrite or internal redirection cycle` | `dist/index.html` doesn't exist - the build didn't finish | 7 |
+| Works when clicking, 404 on refresh | SPA fallback missing | 8 |
+| Site unchanged after a deploy | Nginx site never symlinked into `sites-enabled` | 8 |
+| Frontend calls `localhost:8000` | `.env.production` missing at build time | 7 |
+| Public IP changed after a restart | No Elastic IP | 1 |
+| `Unable to locate package` | `universe` not enabled | 3 |
+
+---
+
+## Appendix - why these steps exist
+
+Most of these are failures this project actually hit.
+
+#### A1. The two ports that must stay closed
+3306 and 8000 need no public inbound rule: MySQL is reached only over `localhost`, and the API only
+through Nginx on 80. Opening 3306 exposes the database directly; opening 8000 exposes the API
+bypassing Nginx. Combined with MySQL bound to `127.0.0.1` (step 4), that's two independent layers
+rather than one.
+
+#### A2. Two secrets, never one
+`JWT_SECRET_KEY` signs identity; `SESSION_SECRET_KEY` signs the cart cookie. One shared value means
+a weakness in either compromises both. `token_urlsafe` is deliberate over `openssl rand -base64` - it emits only `[A-Za-z0-9_-]`, with nothing systemd's `EnvironmentFile` parser could misread as
+quoting.
+
+#### A3. Seed data has no integrity check
+The published release asset was once missing all 453 `customers` rows, and the failure surfaced days
+later as "login is broken on EC2" - pointing at MySQL, the loader, and the schema, when the fault
+was a file published earlier. An artifact with no checksum and no manifest is indistinguishable from
+a corrupted one, so verify the counts at load time rather than discovering it at first login.
+
+#### A4. Logs you don't have
+Gunicorn without `--access-logfile -` writes nothing to the journal, so a 401 or a 500 leaves no
+trace at all and debugging becomes guesswork. This cost real hours during the 2026-08-21 deploy,
+where the frontend reported "Invalid email or password" while the actual problem was that the API
+had never started.
+
+#### A5. The drift class
+Four separate deploy failures shared one shape: **two things that each look internally consistent,
+with nothing comparing them.** Git index vs filesystem (a case-only filename difference that broke
+only on Linux). Published asset vs local file. Installed packages vs `pyproject.toml`. Server `.env`
+vs what `config.py` requires. In every case both sides were valid in isolation and the happy path
+gave no signal they'd drifted. The fix is always a cheap check at the boundary - which is why
+`pip install -e .` is unconditional and the config import is its own step.
+
+#### A6. The build that looks like it worked
+On 1 GB of RAM the TypeScript compile can be OOM-killed. The tell is `Killed` printed above a normal
+prompt - it reads like completion. `dist/` then holds the previous build, so you deploy the old
+frontend and see stale behavior with no error anywhere. Check `free -h` before building; if a build
+seems stuck, check `top` from a second SSH session rather than waiting.
+
+#### A7. The SPA fallback
+The frontend is client-side routed (`<BrowserRouter>`). A direct visit or refresh on `/cart` is a
+real HTTP request to Nginx for a path with no file behind it. Without `try_files $uri /index.html`,
+Nginx 404s before React Router ever loads - the classic "works when I click around, breaks on
+refresh" bug.
+
+#### A8. The home-directory permission trap
+Nginx workers run as `www-data`, but Ubuntu's default home permissions (`drwxr-x---`) block it from
+*traversing into* `/home/ubuntu/`. `/api/` still works - that's proxied and never touches the
+filesystem - while `/` and every static asset serve Nginx's 500 page, with `nginx -t` passing.
+Confirm with `(13: Permission denied)` in `/var/log/nginx/error.log`, then:
 
 ```bash
 sudo chmod o+x /home/ubuntu /home/ubuntu/filmgraph /home/ubuntu/filmgraph/frontend
 sudo chmod -R o+rX /home/ubuntu/filmgraph/frontend/dist
 ```
 
-(A `rewrite or internal redirection cycle` message instead means `dist/index.html` doesn't exist at
-all — usually because `npm run build` didn't finish; see step 7's OOM note.)
-
-Enable the site (a symlink into `sites-enabled` — creating the file in `sites-available` alone does
-nothing):
-
-```bash
-sudo ln -s /etc/nginx/sites-available/filmgraph /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
-sudo nginx -t
-sudo systemctl reload nginx
-```
-
-`nginx -t` validates the config *before* reloading — always run it first, since reloading a broken
-config takes the whole site down.
-
-## 9. HTTPS (optional at this stage)
-
-This project's security requirements call for HTTPS everywhere, but that applies once there's a
-real login/JWT flow — this narrow read-only slice has no auth yet. Let's Encrypt's automated
-certificates (via `certbot`) require a domain, not a bare IP:
-
-- **If you have a domain pointed at the Elastic IP:**
-  ```bash
-  sudo apt install -y certbot python3-certbot-nginx
-  sudo certbot --nginx -d yourdomain.com
-  ```
-  `certbot` edits the Nginx config to add the certificate and a redirect from 80→443, and sets up
-  automatic renewal. Update the security group to also allow inbound **443**.
-- **If you're only testing against the raw EC2 IP:** skip this until a domain exists.
-
-## 10. Verify end-to-end
-
-1. Visit `http://<elastic-ip-or-domain>/` in a browser — confirm the movie list loads.
-2. Open browser dev tools → Network tab, confirm API calls go to `/api/movies` on the **same
-   origin** as the page (no separate `localhost:8000`, no CORS errors).
-3. Click into a movie and a star, confirm cross-navigation works.
-4. **Refresh the page while on `/movies/mv1` directly** (not by clicking there) — this tests the
-   `try_files` fallback from step 8; if it 404s, that config is the first thing to recheck.
-5. On the instance: `sudo systemctl status filmgraph-api` and `sudo systemctl status nginx` should
-   both show `active (running)`.
-6. Confirm in the AWS Console that the security group still shows only 22 (your IP), 80, and (if
-   applicable) 443 open — nothing else.
-
-## 11. Redeploying after changes
-
-Run these in order. Steps 2 and 3 are cheap, idempotent, and **not optional** — every failed deploy
-so far has been the server disagreeing with the repo, with nothing checking.
-
-### 11.1 Pull
-
-```bash
-ssh -i your-key.pem ubuntu@<elastic-ip>
-cd ~/filmgraph
-git pull
-```
-
-`git pull` here puts whatever is on `main` straight onto a running production service, which is why
-every commit on `main` should leave the app in a working state.
-
-### 11.2 Sync backend dependencies — every time, not conditionally
-
-```bash
-cd ~/filmgraph/backend
-source .venv/bin/activate
-pip install -e .
-```
-
-Run this on every deploy, including the ones where you're sure nothing changed. It's idempotent and
-takes seconds when there's nothing to do. The conditional version ("only if dependencies changed")
-is a trap: it's only safe if the server was already in sync, and nothing verifies that. A stale venv
-is what produced `ModuleNotFoundError: itsdangerous` at worker boot.
-
-### 11.3 Check that the settings actually load
-
-```bash
-python3 -c "from app.config import settings; print('config OK')"
-```
-
-This is the whole check. It either prints `config OK`, or raises the same Pydantic
-`ValidationError` the service would hit at boot — naming the exact missing field, in a second,
-instead of via a crash-looping unit and a 500 on every request.
-
-Prefer this over diffing `.env` against `.env.example`. The key diff looks like the obvious check
-but compares against the wrong thing: `.env.example` lists *every* setting, while only the ones
-with **no default** in `app/config.py` can break the app — currently `DATABASE_URL`,
-`JWT_SECRET_KEY`, and `SESSION_SECRET_KEY`. On a perfectly healthy server the diff reports four
-keys missing (`JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `RECAPTCHA_ENABLED`, `RECAPTCHA_SECRET_KEY`),
-all of which have defaults. A check that cries wolf on a good deploy is one you learn to skim past,
-which is how the original missing-secret failure slipped through in the first place.
-
-The key diff is still useful for one narrower question — *which optional settings is this server
-leaving at their defaults?* — as long as you read it as information rather than as a failure:
-
-```bash
-diff <(grep -oE '^[A-Z_]+' .env.example | sort) <(grep -oE '^[A-Z_]+' .env | sort)
-```
-
-If a required setting is missing, generate it — **one secret at a time**:
-
-```bash
-[ -n "$(tail -c1 .env)" ] && echo >> .env      # don't glue the key onto the last line
-python3 -c "import secrets; print('JWT_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
-python3 -c "import secrets; print('SESSION_SECRET_KEY=' + secrets.token_urlsafe(48))" >> .env
-chmod 600 .env
-```
-
-Never reuse one value for both — they sign different things (JWT = identity, session cookie = cart),
-so a shared secret means a weakness in either compromises both. `token_urlsafe` is deliberate over
-`openssl rand -base64`: it emits only `[A-Za-z0-9_-]`, with nothing systemd's `EnvironmentFile`
-parser could misread as quoting.
-
-### 11.4 Restart the backend and prove it booted
-
-```bash
-sudo systemctl restart filmgraph-api
-sudo systemctl status filmgraph-api        # want "active (running)"
-curl -i http://127.0.0.1:8000/health       # want 200 — this is the real gate
-```
-
-`active (running)` only means systemd started a process. `/health` returning 200 is the only thing
-that proves the app imported its settings, reached MySQL, and can serve a request.
-
-### 11.5 Rebuild the frontend — only if frontend code changed
-
-```bash
-free -h        # if Swap shows 0B, add swap (step 7) before building
-cd ~/filmgraph/frontend
-npm ci
-npm run build
-grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked into the build" || echo "clean"
-```
-
-No service restart needed — Nginx serves whatever is in `dist/` on the next request. On a 1 GB
-`t2.micro`/`t3.micro` the TypeScript compile is the step most likely to be OOM-killed; see step 7.
-
-### 11.6 Watch the logs while you click through
-
-```bash
-sudo journalctl -u filmgraph-api -f
-```
-
-Leave this running in a second SSH session while you exercise the site in a browser. With
-`--access-logfile -` on the unit (step 6), every request appears here with its status code.
-
-## Troubleshooting checklist
-
-### Reading the logs
-
-Start here, not with guesses. The API logs to the systemd journal:
-
-```bash
-sudo journalctl -u filmgraph-api -f                    # follow live
-sudo journalctl -u filmgraph-api -n 100 --no-pager     # last 100 lines
-sudo journalctl -u filmgraph-api -p err --no-pager     # errors only
-sudo journalctl -u filmgraph-api --since "10 min ago" --no-pager
-sudo tail -f /var/log/nginx/error.log                  # 500s that never reached the app
-sudo tail -f /var/log/nginx/access.log
-```
-
-If the API journal is empty while requests are clearly arriving, the request isn't reaching the app
-at all — check Nginx's logs and the `proxy_pass` target (step 8).
-
-### Mistakes worth checking first
-
-Each one can leave the app looking "almost working":
-
-- Security group or MySQL `bind-address` exposing the database to the public internet (steps 1, 4).
-- `EnvironmentFile` missing from the systemd unit, so the app can't find `DATABASE_URL` and
-  crash-loops (step 6).
-- `frontend/.env.production` missing or wrong, so the build falls back to `localhost` (step 7) —
-  the `grep dist/` check in that step catches this before you ship it.
-- Nginx site created in `sites-available` but never symlinked into `sites-enabled` (step 8).
-- Missing the SPA fallback (`try_files ... /index.html`), which breaks direct/refreshed links to
-  `/movies/:id` and `/stars/:id` even though in-app navigation still works (step 8).
-- `root` under `/home/ubuntu/` blocked by default home-directory permissions, so `www-data` can't
-  traverse to `dist/` — `/api/...` works fine, but `/` serves a 500. Check
-  `/var/log/nginx/error.log` for `(13: Permission denied)` (step 8).
-- No Elastic IP, so the public address changes on every stop/start (step 1).
-- Installing packages before enabling the `universe` apt component, producing `Unable to locate
-  package` errors for `python3-pip`, `python3-venv`, `nodejs`, and `npm` (step 3).
-- Reusing the local dev database password in production (step 4).
-- A required setting missing from the server `.env`, so `Settings` fails Pydantic validation at
-  import — the service crash-loops and every request 500s or hangs. Only settings with no default
-  in `app/config.py` can cause this; the import check in step 11.3 catches it in one command
-  (step 11).
-- Server venv drifted from `pyproject.toml`, producing `ModuleNotFoundError` at worker boot. The
-  unconditional `pip install -e .` in step 11.2 prevents it (step 11).
+#### A9. Check the invariant that matters
+Diffing `.env` against `.env.example` looks like the obvious check but compares the wrong thing:
+`.env.example` lists *every* setting, while only those with **no default** in `app/config.py` can
+break the app - currently `DATABASE_URL`, `JWT_SECRET_KEY`, `SESSION_SECRET_KEY`. On a healthy
+server that diff reports four missing keys that all have defaults. A check that cries wolf on a good
+deploy is one you learn to skim past, which is how the original missing-secret failure slipped
+through. Importing `app.config` tests the real condition and can't drift from the code.
