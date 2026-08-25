@@ -5,3 +5,4 @@ node_modules/
 dist/
 .env
 backend/db/movie-data.sql
+backend/etl/data/*.xml
