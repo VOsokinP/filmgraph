@@ -1,4 +1,10 @@
-from app.services.movies_service import ALLOWED_SORT, DEFAULT_LIMIT, SECONDARY_SORT
+from app.services.movies_service import (
+    ALLOWED_SORT,
+    DEFAULT_LIMIT,
+    SECONDARY_SORT,
+    _boolean_query,
+    _fulltext_ready,
+)
 from tests.conftest import SEEDED_MOVIE_COUNT
 
 
@@ -38,10 +44,53 @@ def test_pagination_returns_distinct_pages(auth_client):
     assert {m["id"] for m in page1}.isdisjoint({m["id"] for m in page2})
 
 
-def test_title_search_is_substring_matched(auth_client):
+def test_title_search_matches_words_inside_a_longer_title(auth_client):
     body = auth_client.get("/api/movies?title=Movie 03").json()
     assert body["total"] == 1
     assert body["items"][0]["title"] == "Fixture Movie 03"
+
+
+def test_title_search_matches_a_word_prefix(auth_client):
+    body = auth_client.get("/api/movies?title=Fixt").json()
+    assert body["total"] == SEEDED_MOVIE_COUNT
+
+
+def test_short_terms_still_match(auth_client):
+    body = auth_client.get("/api/movies?title=ix").json()
+    assert body["total"] == SEEDED_MOVIE_COUNT
+
+
+def test_fulltext_is_skipped_for_terms_below_the_min_token_size():
+    """Purely an optimisation: it saves a FULLTEXT round trip that could never match.
+    The LIKE retry would return the same rows either way, so assert the decision directly."""
+    assert _fulltext_ready("matrix") is True
+    assert _fulltext_ready("the matrix") is True
+    assert _fulltext_ready("ix") is False
+    assert _fulltext_ready("a matrix") is False
+
+
+def test_boolean_query_strips_operators_and_prefixes_each_word():
+    assert _boolean_query("matrix") == "+matrix*"
+    assert _boolean_query("the matrix") == "+the* +matrix*"
+    assert _boolean_query('+-~<>()"@') == ""
+
+
+def test_midword_term_falls_back_to_like_when_fulltext_finds_nothing(auth_client):
+    """'ixtur' sits inside 'Fixture', which FULLTEXT cannot match; the LIKE retry must."""
+    body = auth_client.get("/api/movies?title=ixtur").json()
+    assert body["total"] == SEEDED_MOVIE_COUNT
+
+
+def test_star_search_uses_the_fulltext_index(auth_client):
+    body = auth_client.get("/api/movies?star=Ada").json()
+    assert body["total"] > 0
+    assert all("Fixture Movie" in m["title"] for m in body["items"])
+
+
+def test_search_with_no_match_returns_empty_after_both_paths(auth_client):
+    body = auth_client.get("/api/movies?title=zzzznotarealtitle").json()
+    assert body["total"] == 0
+    assert body["items"] == []
 
 
 def test_unknown_sort_field_falls_back_instead_of_erroring(auth_client):

@@ -5,6 +5,16 @@ ALLOWED_SORT = {"title", "year", "rating", "price"}
 SECONDARY_SORT = {"title": "rating", "year": "title", "rating": "title", "price": "title"}
 ALLOWED_LIMITS = {10, 25, 50, 100}
 DEFAULT_LIMIT = 10
+FT_MIN_TOKEN_SIZE = 3
+
+
+def _fulltext_ready(term: str) -> bool:
+    return all(len(word) >= FT_MIN_TOKEN_SIZE for word in term.split())
+
+
+def _boolean_query(term: str) -> str:
+    words = [word.strip('+-~<>()*"@') for word in term.split()]
+    return " ".join(f"+{word}*" for word in words if word)
 
 def _genres_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: int | None) -> dict[str, list[dict]]:
     if not movie_ids:
@@ -46,6 +56,9 @@ def _stars_for_movies(conn: Connection, movie_ids: list[str], limit_per_movie: i
             JOIN (
                 SELECT starId, COUNT(*) AS movie_count
                 FROM stars_in_movies
+                WHERE starId IN (
+                    SELECT starId FROM stars_in_movies WHERE movieId IN :movie_ids
+                )
                 GROUP BY starId
             ) AS star_counts ON star_counts.starId = s.id
             WHERE sim.movieId IN :movie_ids
@@ -106,55 +119,76 @@ def search_movies(
     page = max(page, 1)
     offset = (page - 1) * limit
 
-    where: list[str] = []
-    params: dict =  {"limit": limit, "offset": offset}
+    def build_filters(use_fulltext: bool) -> tuple[list[str], list[str], dict]:
+        joins: list[str] = []
+        where: list[str] = []
+        params: dict = {"limit": limit, "offset": offset}
 
-    if title:
-        where.append("m.title LIKE :title")
-        params["title"] = f"%{title}%"
-    if year is not None:
-        where.append("m.year = :year")
-        params["year"] = year
-    if director:
-        where.append("m.director LIKE :director")
-        params["director"] = f"%{director}%"
-    if star:
-        where.append("""
-            m.id IN (
-                SELECT sim.movieId FROM stars_in_movies sim
-                JOIN stars s ON sim.starId = s.id
-                WHERE s.name LIKE :star
-            )
-        """)
-        params["star"] = f"%{star}%"
-    if genre_id is not None:
-        where.append("""
-            m.id IN (
-                SELECT gim.movieId FROM genres_in_movies gim
-                WHERE gim.genreId = :genre_id
-            )
-        """)
-        params["genre_id"] = genre_id
-    if starts_with:
-        if starts_with == "*":
-            where.append("m.title REGEXP '^[^a-zA-Z0-9]'")
-        else:
-            where.append("m.title LIKE :starts_with")
-            params["starts_with"] = f"{starts_with}%"
+        def match_clause(field: str, term: str, column: str) -> str:
+            if use_fulltext and _fulltext_ready(term):
+                params[field] = _boolean_query(term)
+                return f"MATCH({column}) AGAINST (:{field} IN BOOLEAN MODE)"
+            params[field] = f"%{term}%"
+            return f"{column} LIKE :{field}"
 
-    where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+        def text_filter(field: str, term: str, column: str) -> None:
+            where.append(match_clause(field, term, column))
+
+        if title:
+            text_filter("title", title, "m.title")
+        if year is not None:
+            where.append("m.year = :year")
+            params["year"] = year
+        if director:
+            text_filter("director", director, "m.director")
+        if star:
+            # Joined, not `m.id IN (...)`: with a FULLTEXT predicate the optimiser loses the
+            # row estimate for the subquery and falls back to scanning movies once per match.
+            joins.append(f"""
+                JOIN (
+                    SELECT DISTINCT sim.movieId
+                    FROM stars_in_movies sim
+                    JOIN stars s ON sim.starId = s.id
+                    WHERE {match_clause("star", star, "s.name")}
+                ) star_match ON star_match.movieId = m.id
+            """)
+        if genre_id is not None:
+            where.append("""
+                m.id IN (
+                    SELECT gim.movieId FROM genres_in_movies gim
+                    WHERE gim.genreId = :genre_id
+                )
+            """)
+            params["genre_id"] = genre_id
+        if starts_with:
+            if starts_with == "*":
+                where.append("m.title REGEXP '^[^a-zA-Z0-9]'")
+            else:
+                where.append("m.title LIKE :starts_with")
+                params["starts_with"] = f"{starts_with}%"
+
+        return joins, where, params
 
     # LEFT JOIN and not INNER since an unrated movie should still show up in search/browse results with a null rating
-    query = text(f"""
-        SELECT m.id, m.title, m.year, m.director, m.price, r.rating,
-            COUNT(*) OVER() AS total_count
-        FROM movies m
-        LEFT JOIN ratings r ON m.id = r.movieId
-        {where_clause}
-        ORDER BY {sort_by} {sort_dir}, {secondary} {sort_dir}
-        LIMIT :limit OFFSET :offset
-    """)
-    rows = conn.execute(query, params).mappings().all()
+    def run(use_fulltext: bool):
+        joins, where, params = build_filters(use_fulltext)
+        where_clause = f"WHERE {' AND '.join(where)}" if where else ""
+        query = text(f"""
+            SELECT m.id, m.title, m.year, m.director, m.price, r.rating,
+                COUNT(*) OVER() AS total_count
+            FROM movies m
+            LEFT JOIN ratings r ON m.id = r.movieId
+            {' '.join(joins)}
+            {where_clause}
+            ORDER BY {sort_by} {sort_dir}, {secondary} {sort_dir}
+            LIMIT :limit OFFSET :offset
+        """)
+        return conn.execute(query, params).mappings().all()
+
+    searched_text = any(term for term in (title, director, star))
+    rows = run(use_fulltext=True)
+    if not rows and searched_text:
+        rows = run(use_fulltext=False)
     if not rows:
         return [], 0, limit
 
