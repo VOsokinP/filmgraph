@@ -1,11 +1,11 @@
 import { useState, type SubmitEvent } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { apiPost, errorMessage } from '../api/client';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
-import { AlertIcon, FilmIcon } from '../components/ui/Icons';
+import { AlertIcon, ChevronLeftIcon, FilmIcon } from '../components/ui/Icons';
 
 export default function Login() {
     const [email, setEmail] = useState('');
@@ -35,12 +35,11 @@ export default function Login() {
     return (
         <div className="auth">
             <div className="auth__card card">
-                <p className="auth__brand">
+                <Link to="/" className="auth__brand">
                     <FilmIcon size={22} className="brand__mark" />
                     FilmGraph
-                </p>
+                </Link>
                 <h1 className="auth__title">Log in</h1>
-                <p className="auth__subtitle">Sign in to browse and buy from the catalog.</p>
 
                 <form className="form" onSubmit={handleSubmit}>
                     <Field
@@ -70,6 +69,13 @@ export default function Login() {
                         Log in
                     </Button>
                 </form>
+
+                <p className="auth__foot">
+                    <Link to="/" className="back-link">
+                        <ChevronLeftIcon size={15} />
+                        Back to movie list
+                    </Link>
+                </p>
             </div>
         </div>
     );
