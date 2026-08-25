@@ -17,6 +17,7 @@ dependencies = [
     "httpx",
     "alembic",
     "email-validator",
+    "lxml",
 ]
 
 [project.optional-dependencies]
