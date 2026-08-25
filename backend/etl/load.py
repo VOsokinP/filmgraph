@@ -48,13 +48,15 @@ def _batched(rows, size=BATCH_SIZE):
         yield batch
 
 
-def _insert(conn, statement: str, rows, dry_run: bool) -> int:
-    total = 0
+def _insert(conn, statement: str, rows, dry_run: bool) -> tuple[int, int]:
+    sent = inserted = 0
     for batch in _batched(rows):
-        if not dry_run:
-            conn.execute(text(statement), batch)
-        total += len(batch)
-    return total
+        sent += len(batch)
+        if dry_run:
+            inserted += len(batch)
+            continue
+        inserted += conn.execute(text(statement), batch).rowcount
+    return sent, inserted
 
 
 def _existing(conn):
@@ -65,13 +67,7 @@ def _existing(conn):
     }
     stars = {r[1].strip().lower(): r[0] for r in conn.execute(text("SELECT id, name FROM stars"))}
     genres = {r[1].strip().lower(): r[0] for r in conn.execute(text("SELECT id, name FROM genres"))}
-    cast_pairs = {
-        (r[0], r[1]) for r in conn.execute(text("SELECT starId, movieId FROM stars_in_movies"))
-    }
-    genre_pairs = {
-        (r[0], r[1]) for r in conn.execute(text("SELECT genreId, movieId FROM genres_in_movies"))
-    }
-    return movie_ids, movie_keys, stars, genres, cast_pairs, genre_pairs
+    return movie_ids, movie_keys, stars, genres
 
 
 def load(data_dir: Path, dry_run: bool) -> Report:
@@ -79,14 +75,7 @@ def load(data_dir: Path, dry_run: bool) -> Report:
     started = time.perf_counter()
 
     with engine.connect() as conn:
-        (
-            movie_ids,
-            movie_keys,
-            star_ids_by_name,
-            genre_ids_by_name,
-            existing_cast_pairs,
-            existing_genre_pairs,
-        ) = _existing(conn)
+        movie_ids, movie_keys, star_ids_by_name, genre_ids_by_name = _existing(conn)
         conn.rollback()
         report.add("existing movies in database", n=len(movie_ids))
         report.add("existing stars in database", n=len(star_ids_by_name))
@@ -169,20 +158,23 @@ def load(data_dir: Path, dry_run: bool) -> Report:
                 genre_ids_by_name[lower] = result.lastrowid
             report.add("new genres created", n=len(pending_genres))
 
-            genre_rows, seen_pairs = [], set(existing_genre_pairs)
+            genre_rows, seen_pairs = [], set()
             for fid, lower in new_genre_links:
                 genre_id = genre_ids_by_name.get(lower)
                 if genre_id is None or (fid, genre_id) in seen_pairs:
                     continue
                 seen_pairs.add((fid, genre_id))
                 genre_rows.append({"genre_id": genre_id, "movie_id": fid})
-            _insert(
+            sent, inserted = _insert(
                 conn,
-                "INSERT INTO genres_in_movies (genreId, movieId) VALUES (:genre_id, :movie_id)",
+                "INSERT IGNORE INTO genres_in_movies (genreId, movieId) "
+                "VALUES (:genre_id, :movie_id)",
                 genre_rows,
                 dry_run,
             )
-            report.add("genre links inserted", n=len(genre_rows))
+            report.add("genre links inserted", n=inserted)
+            if sent - inserted:
+                report.add("genre links already present", n=sent - inserted)
 
         next_star = 1
         new_stars = []
@@ -212,7 +204,7 @@ def load(data_dir: Path, dry_run: bool) -> Report:
                 report.add("actor loaded with no birth year", name)
 
         cast_pairs, synthesized = [], []
-        seen_cast = set(existing_cast_pairs)
+        seen_cast = set()
         for entry in parse.iter_casts(data_dir / "casts124.xml"):
             fid, name = entry["fid"], entry["name"]
             if not fid or not name:
@@ -228,30 +220,29 @@ def load(data_dir: Path, dry_run: bool) -> Report:
                 synthesized.append({"id": star_id, "name": name[:MAX_NAME], "birth_year": None})
                 report.add("star synthesized from a cast reference", name)
             if (star_id, fid) in seen_cast:
-                report.add(
-                    "cast row skipped: link already present"
-                    if (star_id, fid) in existing_cast_pairs
-                    else "cast row skipped: duplicate pair in source"
-                )
+                report.add("cast row skipped: duplicate pair in source")
                 continue
             seen_cast.add((star_id, fid))
             cast_pairs.append({"star_id": star_id, "movie_id": fid})
 
         with conn.begin():
-            _insert(
+            _, inserted = _insert(
                 conn,
                 "INSERT INTO stars (id, name, birthYear) VALUES (:id, :name, :birth_year)",
                 new_stars + synthesized,
                 dry_run,
             )
-            report.add("stars inserted", n=len(new_stars) + len(synthesized))
-            _insert(
+            report.add("stars inserted", n=inserted)
+            sent, inserted = _insert(
                 conn,
-                "INSERT INTO stars_in_movies (starId, movieId) VALUES (:star_id, :movie_id)",
+                "INSERT IGNORE INTO stars_in_movies (starId, movieId) "
+                "VALUES (:star_id, :movie_id)",
                 cast_pairs,
                 dry_run,
             )
-            report.add("cast links inserted", n=len(cast_pairs))
+            report.add("cast links inserted", n=inserted)
+            if sent - inserted:
+                report.add("cast links already present", n=sent - inserted)
 
     elapsed = time.perf_counter() - started
     written = (
