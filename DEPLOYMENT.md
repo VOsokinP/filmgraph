@@ -322,6 +322,9 @@ Notes:
 - **Step 6** needs no service restart - Nginx serves whatever is in `dist/` on the next request.
 - If a required setting is missing, generate it with the commands in [step 5](#5-clone-configure-and-load-data).
 
+**Not a deploy step:** `backend/etl/` is a local batch importer for a separate XML dataset.
+Production carries only its schema changes, applied by step 4 like any other migration.
+
 **Rollback:** `git reset --hard <sha>`, rebuild the frontend, restart the service.
 
 ---

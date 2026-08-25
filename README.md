@@ -37,6 +37,7 @@ in a transaction that rolls back if any insert fails. Payment is mocked; no real
 | Database | MySQL 8 |
 | Tests / CI | pytest against a real MySQL schema, GitHub Actions |
 | Containers | Docker multi-stage build, Compose stack for API + MySQL 8 |
+| Batch import | lxml streaming parser, CLI loader |
 | Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers |
 
 
@@ -143,6 +144,25 @@ cd frontend && npm run dev                                  # http://localhost:5
 
 CORS for the Vite dev origin is already configured in `app/main.py`.
 
+## Loading more data
+
+`backend/etl/` is a batch importer for the [Stanford InfoLab movie
+dataset](http://infolab.stanford.edu/pub/movies/), a separate multi-file XML source. It is a local
+tool, not part of deployment.
+
+```bash
+cd backend/etl/data
+curl -O http://infolab.stanford.edu/pub/movies/{mains243.xml,casts124.xml,actors63.xml}
+cd ../.. && python -m etl.load etl/data --dry-run    # parse and report, write nothing
+python -m etl.load etl/data
+```
+
+Streams with `lxml.iterparse` and writes in batches of 1,000, deduplicating against rows already in
+the database so a re-run inserts nothing. The source is inconsistent, so every rejected record is
+counted and sampled in the run report, and the judgment calls are explicit: cast members missing
+from `actors63.xml` become stars with a null birth year rather than being dropped, and Stanford
+genre codes map onto the existing names (`Dram` to Drama), unrecognised ones passing through.
+
 ## Tests
 
 ```bash
@@ -201,6 +221,7 @@ backend/
     core/         # security.py, recaptcha.py
     db/           # engine.py - connection management
   alembic/        # migrations - the schema source of truth
+  etl/            # batch XML importer (local tool, not deployed)
   tests/
 frontend/src/
   pages/          # one component per route
@@ -223,7 +244,7 @@ docker-compose.yml        # local stack - API + MySQL 8
 - [x] Deployed to AWS EC2 behind Nginx + systemd
 - [x] pytest suite against a real MySQL schema, GitHub Actions CI
 - [x] Error states and retry on every failed request
-- [ ] Streaming XML ingestion (lxml) to replace the manual seed load
-- [ ] MySQL FULLTEXT search replacing `LIKE` matching
+- [x] Streaming XML parse feeding batched inserts (lxml), 45k rows/sec
+- [x] MySQL FULLTEXT search replacing `LIKE` matching
 - [x] Docker - multi-stage image (334 MB runtime, down from 771 MB) + Compose stack
 - [ ] HTTPS and a persistent public URL
