@@ -9,7 +9,7 @@ import Button from './components/ui/Button';
 import { CartIcon, FilmIcon, LogOutIcon } from './components/ui/Icons';
 
 function Header() {
-  const { customer, refresh } = useAuth();
+  const { customer, loading, refresh } = useAuth();
   const { count } = useCartCount();
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutFailed, setLogoutFailed] = useState(false);
@@ -58,19 +58,25 @@ function Header() {
         </nav>
 
         <div className="app-header__user">
-          {customer && (
-            <span className="app-header__name">
-              {customer.firstName} {customer.lastName}
-            </span>
-          )}
-          <Button variant="ghost" size="sm" onClick={logout} pending={loggingOut}>
-            <LogOutIcon size={14} />
-            Log out
-          </Button>
-          {logoutFailed && (
-            <span className="app-header__logout-error" role="alert">
-              Log out failed, still signed in
-            </span>
+          {loading ? null : customer ? (
+            <>
+              <span className="app-header__name">
+                {customer.firstName} {customer.lastName}
+              </span>
+              <Button variant="ghost" size="sm" onClick={logout} pending={loggingOut}>
+                <LogOutIcon size={14} />
+                Log out
+              </Button>
+              {logoutFailed && (
+                <span className="app-header__logout-error" role="alert">
+                  Log out failed, still signed in
+                </span>
+              )}
+            </>
+          ) : (
+            <Link to="/login" className="btn btn--secondary btn--sm">
+              Log in
+            </Link>
           )}
         </div>
       </div>

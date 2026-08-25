@@ -19,10 +19,10 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 _auth_required = [Depends(get_current_customer_id)]
-app.include_router(movies.router, prefix="/api/movies", tags=["movies"], dependencies=_auth_required)
-app.include_router(stars.router, prefix="/api/stars", tags=["stars"], dependencies=_auth_required)
-app.include_router(genres.router, prefix="/api/genres", tags=["genres"], dependencies=_auth_required)
-app.include_router(cart.router, prefix="/api/cart", tags=["cart"], dependencies=_auth_required)
+app.include_router(movies.router, prefix="/api/movies", tags=["movies"])
+app.include_router(stars.router, prefix="/api/stars", tags=["stars"])
+app.include_router(genres.router, prefix="/api/genres", tags=["genres"])
+app.include_router(cart.router, prefix="/api/cart", tags=["cart"])
 app.include_router(checkout.router, prefix="/api/checkout", tags=["checkout"], dependencies=_auth_required)
 
 @app.get("/health")

@@ -41,12 +41,40 @@ def test_password_hash_is_never_returned(client):
     assert "passwordHash" not in response.json()
 
 
-def test_protected_route_requires_cookie(client):
-    assert client.get("/api/movies").status_code == 401
+def test_browsing_is_public(client):
+    """Browsing must not require a cookie. Gating it put a login wall in front of the demo."""
+    assert client.get("/api/movies").status_code == 200
+    assert client.get("/api/genres").status_code == 200
 
 
-def test_protected_route_accessible_after_login(auth_client):
+def test_cart_is_public_so_an_anonymous_visitor_can_fill_one(client):
+    assert client.get("/api/cart").status_code == 200
+    assert client.post(
+        "/api/cart/items", json={"movie_id": "tt0000001", "delta": 1}
+    ).status_code == 200
+
+
+def test_checkout_still_requires_a_cookie(client):
+    assert client.post("/api/checkout", json={}).status_code == 401
+
+
+def test_browsing_also_works_when_logged_in(auth_client):
     assert auth_client.get("/api/movies").status_code == 200
+
+
+def test_anonymous_cart_survives_logging_in(client):
+    """Fill a cart, then log in at checkout. Losing the cart there would be the worst moment."""
+    client.post("/api/cart/items", json={"movie_id": "tt0000001", "delta": 2})
+    before = client.get("/api/cart").json()
+    assert before["items"][0]["quantity"] == 2
+
+    assert client.post(
+        "/api/auth/login", json={"email": TEST_EMAIL, "password": TEST_PASSWORD}
+    ).status_code == 200
+
+    after = client.get("/api/cart").json()
+    assert after["items"] == before["items"]
+    assert after["total"] == before["total"]
 
 
 def test_health_is_open(client):

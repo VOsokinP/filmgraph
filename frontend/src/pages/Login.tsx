@@ -1,5 +1,5 @@
 import { useState, type SubmitEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
 import { apiPost, errorMessage } from '../api/client';
@@ -14,6 +14,8 @@ export default function Login() {
     const [pending, setPending] = useState(false);
     const { refresh } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+    const from = (location.state as { from?: string } | null)?.from ?? '/';
 
     const handleSubmit = async (event: SubmitEvent) => {
         event.preventDefault();
@@ -22,7 +24,7 @@ export default function Login() {
         try {
             await apiPost('/auth/login', { email, password });
             await refresh();
-            navigate('/');
+            navigate(from, { replace: true });
         } catch (err) {
             setError(errorMessage(err));
         } finally {
