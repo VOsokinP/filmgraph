@@ -395,17 +395,32 @@ takes seconds when there's nothing to do. The conditional version ("only if depe
 is a trap: it's only safe if the server was already in sync, and nothing verifies that. A stale venv
 is what produced `ModuleNotFoundError: itsdangerous` at worker boot.
 
-### 11.3 Check `.env` against `.env.example`
+### 11.3 Check that the settings actually load
+
+```bash
+python3 -c "from app.config import settings; print('config OK')"
+```
+
+This is the whole check. It either prints `config OK`, or raises the same Pydantic
+`ValidationError` the service would hit at boot — naming the exact missing field, in a second,
+instead of via a crash-looping unit and a 500 on every request.
+
+Prefer this over diffing `.env` against `.env.example`. The key diff looks like the obvious check
+but compares against the wrong thing: `.env.example` lists *every* setting, while only the ones
+with **no default** in `app/config.py` can break the app — currently `DATABASE_URL`,
+`JWT_SECRET_KEY`, and `SESSION_SECRET_KEY`. On a perfectly healthy server the diff reports four
+keys missing (`JWT_ALGORITHM`, `JWT_EXPIRE_MINUTES`, `RECAPTCHA_ENABLED`, `RECAPTCHA_SECRET_KEY`),
+all of which have defaults. A check that cries wolf on a good deploy is one you learn to skim past,
+which is how the original missing-secret failure slipped through in the first place.
+
+The key diff is still useful for one narrower question — *which optional settings is this server
+leaving at their defaults?* — as long as you read it as information rather than as a failure:
 
 ```bash
 diff <(grep -oE '^[A-Z_]+' .env.example | sort) <(grep -oE '^[A-Z_]+' .env | sort)
 ```
 
-No output means the server has every key the repo expects. A line starting with `<` is a variable
-the repo template defines and the server is missing. `app/config.py` gives `JWT_SECRET_KEY` and
-`SESSION_SECRET_KEY` no defaults, so a missing key is a Pydantic `ValidationError` at import — the
-app never starts and every request 500s or hangs. Generate anything missing, **one secret at a
-time**:
+If a required setting is missing, generate it — **one secret at a time**:
 
 ```bash
 [ -n "$(tail -c1 .env)" ] && echo >> .env      # don't glue the key onto the last line
@@ -489,8 +504,9 @@ Each one can leave the app looking "almost working":
 - Installing packages before enabling the `universe` apt component, producing `Unable to locate
   package` errors for `python3-pip`, `python3-venv`, `nodejs`, and `npm` (step 3).
 - Reusing the local dev database password in production (step 4).
-- Server `.env` drifted from `.env.example`, so a required setting has no value and `Settings` fails
-  Pydantic validation at import — the service crash-loops and every request 500s or hangs. The
-  `diff` in step 11.3 catches this in one command (step 11).
+- A required setting missing from the server `.env`, so `Settings` fails Pydantic validation at
+  import — the service crash-loops and every request 500s or hangs. Only settings with no default
+  in `app/config.py` can cause this; the import check in step 11.3 catches it in one command
+  (step 11).
 - Server venv drifted from `pyproject.toml`, producing `ModuleNotFoundError` at worker boot. The
   unconditional `pip install -e .` in step 11.2 prevents it (step 11).
