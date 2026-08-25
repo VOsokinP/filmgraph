@@ -27,7 +27,7 @@ function Header() {
       setLoggingOut(false);
     }
     await refresh();
-    navigate('/login');
+    navigate('/');
   };
 
   const navClass = ({ isActive }: { isActive: boolean }) =>
