@@ -5,7 +5,7 @@ reboot or an SSH disconnect. No Docker or Kubernetes - one plain instance is the
 infrastructure for this stage.
 
 **Sections 1-10 are first-time setup. [Section 11](#11-redeploying) is the runbook you'll actually
-use day to day.** Long explanations live in the [appendix](#appendix--why-these-steps-exist) so the
+use day to day.** Long explanations live in the [appendix](#appendix---why-these-steps-exist) so the
 command path stays scannable; each step links to its own note.
 
 **Prerequisites:** an AWS account, the repo on GitHub, and `movie-data.sql` from
@@ -48,6 +48,19 @@ sudo ufw enable
 
 The host firewall is a second layer behind the security group, not a replacement for it.
 
+**Add swap before installing anything.** A 1 GB instance has no headroom, and the OOM killer
+reliably picks MySQL. This survives reboots, unlike `swapon` alone.
+[Why →](#a10-the-1-gb-instance-has-no-headroom)
+
+```bash
+sudo fallocate -l 1G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h                          # Swap should show 1.0Gi
+```
+
 ## 3. Install system dependencies
 
 ```bash
@@ -81,6 +94,19 @@ truth, regardless of what the config file claims:
 ```bash
 sudo ss -tlnp | grep 3306        # want 127.0.0.1:3306, not 0.0.0.0:3306
 ```
+
+**Tune MySQL for a 1 GB box.** Stock settings assume a real server and leave nothing for the API,
+Nginx and a build. The repo copy is `deploy/mysql-small-instance.cnf`:
+
+```bash
+sudo cp ~/filmgraph/deploy/mysql-small-instance.cnf /etc/mysql/mysql.conf.d/
+sudo systemctl restart mysql
+free -h
+```
+
+`performance_schema = OFF` is the big one, typically 100 to 200 MB. A 96 MB buffer pool still holds
+the whole database, which is about 24 MB. These live in a separate file so an `apt upgrade` can
+replace the packaged `mysqld.cnf` without discarding them.
 
 Schema and seed data come in step 5, once Alembic is on the box.
 
@@ -198,12 +224,9 @@ needed: `frontend/.env.production` is committed and sets `VITE_API_BASE=/api`, a
 same-origin path.
 
 On a 1 GB `t2.micro`/`t3.micro` the TypeScript compile can be OOM-killed, which looks like success.
-[Why →](#a6-the-build-that-looks-like-it-worked)
-
-```bash
-sudo fallocate -l 1G /swapfile && sudo chmod 600 /swapfile
-sudo mkswap /swapfile && sudo swapon /swapfile
-```
+[Why →](#a6-the-build-that-looks-like-it-worked) Swap is set up in step 2; confirm it is active with
+`free -h` before building. `node_modules` runs to roughly 300 MB and is only needed at build time,
+so `rm -rf node_modules` afterwards is a fair way to reclaim disk on a full instance.
 
 ## 8. Install and configure Nginx
 
@@ -354,6 +377,8 @@ An empty API journal while requests are clearly arriving means they aren't reach
 | Frontend calls `localhost:8000` | `.env.production` missing at build time | 7 |
 | Public IP changed after a restart | No Elastic IP | 1 |
 | `Unable to locate package` | `universe` not enabled | 3 |
+| MySQL restart-looping, `Connection refused` on 3306 | OOM killed. Confirm with `sudo dmesg -T` and grep for `killed process`. Cause is no swap plus stock MySQL memory settings | 2, 4 |
+| A deploy step dies, or the box freezes | disk full or no swap. Check `df -h` and `free -h` before assuming the step itself is at fault | 2, 7 |
 
 ---
 
@@ -422,3 +447,18 @@ break the app - currently `DATABASE_URL`, `JWT_SECRET_KEY`, `SESSION_SECRET_KEY`
 server that diff reports four missing keys that all have defaults. A check that cries wolf on a good
 deploy is one you learn to skim past, which is how the original missing-secret failure slipped
 through. Importing `app.config` tests the real condition and can't drift from the code.
+
+#### A10. The 1 GB instance has no headroom
+MySQL alone runs 400 to 500 MB with stock settings, on a box with roughly 900 MB usable and no swap
+by default. Anything else wanting memory at the same time, a TypeScript compile or pip building a
+wheel from source, pushes the kernel into choosing a victim, and it picks the largest process. That
+is MySQL, every time.
+
+The symptom misleads because it surfaces far from the cause: a database refusing connections and
+restarting every few seconds, while whatever exhausted memory has already finished and left no
+trace in the place you are looking. `sudo dmesg -T` and a grep for `killed process` shows the truth
+in one line. Persistent swap (step 2) and the tuning in step 4 are what stop it recurring.
+
+Related: a package with no prebuilt wheel for the server's Python version compiles from source,
+which means running a C compiler here. Prefer runtime dependencies that ship wheels, and keep
+build-only dependencies out of the production install.
