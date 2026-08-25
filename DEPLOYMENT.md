@@ -276,7 +276,7 @@ security group and keep 80 open so the redirect works.
 
 ## 11. Redeploying
 
-The whole runbook. Steps 2-4 are cheap, idempotent, and **not optional** - every failed deploy so
+The whole runbook. Steps 2-5 are cheap, idempotent, and **not optional** - every failed deploy so
 far has been the server disagreeing with the repo, with nothing checking.
 [Why →](#a5-the-drift-class)
 
@@ -293,17 +293,20 @@ cd backend && source .venv/bin/activate && pip install -e .
 # 3. prove the settings load
 python3 -c "from app.config import settings; print('config OK')"
 
-# 4. restart, and prove it booted
+# 4. apply any new migrations (a no-op when there are none)
+alembic upgrade head
+
+# 5. restart, and prove it booted
 sudo systemctl restart filmgraph-api
 sudo systemctl status filmgraph-api         # active (running)
 curl -i http://127.0.0.1:8000/health        # 200 - this is the real gate
 
-# 5. rebuild the frontend, only if frontend code changed
+# 6. rebuild the frontend, only if frontend code changed
 free -h
 cd ../frontend && npm ci && npm run build
 grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked" || echo "clean"
 
-# 6. watch the journal in a second session while you click through
+# 7. watch the journal in a second session while you click through
 sudo journalctl -u filmgraph-api -f
 ```
 
@@ -312,9 +315,11 @@ Notes:
 - **Step 3** raises the same `ValidationError` the service would hit at boot, naming the exact
   missing field. Prefer it over diffing `.env` against `.env.example`.
   [Why →](#a9-check-the-invariant-that-matters)
-- **Step 4:** `active (running)` only means systemd started a process. `/health` returning 200 is
+- **Step 4** is idempotent and prints nothing new when the server is already at head. Skipping
+  it is how code that expects a new index or column reaches production against the old schema.
+- **Step 5:** `active (running)` only means systemd started a process. `/health` returning 200 is
   what proves the app loaded its settings and reached MySQL.
-- **Step 5** needs no service restart - Nginx serves whatever is in `dist/` on the next request.
+- **Step 6** needs no service restart - Nginx serves whatever is in `dist/` on the next request.
 - If a required setting is missing, generate it with the commands in [step 5](#5-clone-configure-and-load-data).
 
 **Rollback:** `git reset --hard <sha>`, rebuild the frontend, restart the service.
