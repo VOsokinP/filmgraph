@@ -151,6 +151,7 @@ dataset](http://infolab.stanford.edu/pub/movies/), a separate multi-file XML sou
 tool, not part of deployment.
 
 ```bash
+pip install -e ".[etl]"          # lxml; not installed in production
 cd backend/etl/data
 curl -O http://infolab.stanford.edu/pub/movies/{mains243.xml,casts124.xml,actors63.xml}
 cd ../.. && python -m etl.load etl/data --dry-run    # parse and report, write nothing
@@ -167,9 +168,13 @@ genre codes map onto the existing names (`Dram` to Drama), unrecognised ones pas
 
 ```bash
 cd backend
-pip install -e ".[dev]"
+pip install -e ".[dev,etl]"
 pytest -q
 ```
+
+`lxml` lives in the `etl` extra rather than the runtime dependencies, so production never installs a
+parser it does not import. Without it the ETL tests skip cleanly (32 passed, 1 skipped) instead of
+failing to import.
 
 Tests run against a **real MySQL schema**, not a mock or SQLite - the app leans on MySQL-specific
 SQL, so anything else would be testing different code than production runs. `conftest.py` redirects

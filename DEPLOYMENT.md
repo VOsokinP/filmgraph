@@ -349,7 +349,10 @@ Notes:
 - If a required setting is missing, generate it with the commands in [step 5](#5-clone-configure-and-load-data).
 
 **Not a deploy step:** `backend/etl/` is a local batch importer for a separate XML dataset.
-Production carries only its schema changes, applied by step 4 like any other migration.
+Production carries only its schema changes, applied by step 4 like any other migration. Its `lxml`
+dependency lives in the `etl` extra, so `pip install -e .` here does not install it. That is
+deliberate: on this instance an unnecessary source build is what triggered the OOM cascade in
+appendix A10.
 
 **Rollback:** `git reset --hard <sha>`, rebuild the frontend, restart the service.
 

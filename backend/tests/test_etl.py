@@ -1,7 +1,9 @@
 import pytest
 
-from etl import parse
-from etl.genre_map import map_genre
+pytest.importorskip("lxml", reason="the ETL extra is not installed: pip install -e '.[dev,etl]'")
+
+from etl import parse  # noqa: E402
+from etl.genre_map import map_genre  # noqa: E402
 
 MAINS = """<?xml version='1.0' encoding='ISO-8859-1'?>
 <movies>

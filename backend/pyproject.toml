@@ -17,12 +17,14 @@ dependencies = [
     "httpx",
     "alembic",
     "email-validator",
-    "lxml",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+]
+etl = [
+    "lxml",
 ]
 
 [tool.pytest.ini_options]
