@@ -230,37 +230,40 @@ so `rm -rf node_modules` afterwards is a fair way to reclaim disk on a full inst
 
 ## 8. Install and configure Nginx
 
-Nginx serves the built frontend and reverse-proxies `/api/` to `127.0.0.1:8000`. Create
-`/etc/nginx/sites-available/filmgraph` (repo copy: `deploy/nginx.conf`):
+Nginx serves the built frontend and reverse-proxies `/api/` to `127.0.0.1:8000`. Two files, both
+in the repo:
 
-```nginx
-server {
-    listen 80;
-    server_name <elastic-ip-or-domain>;
-
-    root /home/ubuntu/filmgraph/frontend/dist;
-    index index.html;
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000/api/;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    location / {
-        try_files $uri /index.html;
-    }
-}
-```
+| repo file | goes to | carries |
+|---|---|---|
+| `deploy/nginx.conf` | `/etc/nginx/nginx.conf` | `server_tokens off`, the `login` rate-limit zone |
+| `deploy/nginx-site.conf` | `/etc/nginx/sites-available/filmgraph` | the server block, security headers, the login rate limit |
 
 ```bash
-sudo ln -s /etc/nginx/sites-available/filmgraph /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
+sudo cp ~/filmgraph/deploy/nginx.conf /etc/nginx/nginx.conf
+sudo cp ~/filmgraph/deploy/nginx-site.conf /etc/nginx/sites-available/filmgraph
+sudo sed -i "s/<elastic-ip-or-domain>/$(curl -s ifconfig.me)/" /etc/nginx/sites-available/filmgraph
+sudo ln -sf /etc/nginx/sites-available/filmgraph /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t                    # always before reload - a broken config takes the site down
 sudo systemctl reload nginx
 ```
+
+Removing `sites-enabled/default` is not optional. It is the default server, so while it exists a
+request whose `Host` does not match `server_name` is served by it, and your site config is silently
+ignored.
+
+**Login is rate limited** to 5 requests per minute per IP with a burst of 5, returning 429. Nothing
+else limits login attempts, so without this a public link is an open brute-force target. Verify
+after reload by sending a dozen rapid requests and watching the status flip to 429:
+
+```bash
+for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost/api/auth/login; done; echo
+```
+
+**Security headers** are set at server level: `X-Content-Type-Options: nosniff`,
+`X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`. Note that `add_header`
+in a `location` block discards inherited headers, so anything added later (HSTS, CSP) belongs at
+server level too, or must be repeated in every location.
 
 Two traps this config addresses, both of which pass `nginx -t` and still break the site:
 
