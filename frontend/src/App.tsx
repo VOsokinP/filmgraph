@@ -19,12 +19,12 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute />}>
-            <Route element={<Layout />}>
-              <Route path="/" element={<MovieList />} />
-              <Route path="/movies/:id" element={<SingleMovie />} />
-              <Route path="/stars/:id" element={<SingleStar />} />
-              <Route path="/cart" element={<Cart />} />
+          <Route element={<Layout />}>
+            <Route path="/" element={<MovieList />} />
+            <Route path="/movies/:id" element={<SingleMovie />} />
+            <Route path="/stars/:id" element={<SingleStar />} />
+            <Route path="/cart" element={<Cart />} />
+            <Route element={<ProtectedRoute />}>
               <Route path="/payment" element={<Payment />} />
               <Route path="/confirmation/:orderId" element={<Confirmation />} />
             </Route>
