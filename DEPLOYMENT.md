@@ -8,8 +8,59 @@ infrastructure for this stage.
 use day to day.** Long explanations live in the [appendix](#appendix---why-these-steps-exist) so the
 command path stays scannable; each step links to its own note.
 
+On a first read, note that sections 8 and 9 are written against a specific domain. See
+[Adapting this to your own deploy](#adapting-this-to-your-own-deploy).
+
 **Prerequisites:** an AWS account, the repo on GitHub, and `movie-data.sql` from
 [Releases](https://github.com/VOsokinP/FilmGraph/releases).
+
+> **If you are not me, read [Adapting this to your own deploy](#adapting-this-to-your-own-deploy)
+> first.** The files under `deploy/` name a real domain, a real certificate path, and a real Linux
+> user. They are deliberately concrete rather than templated, and copying them unchanged will not
+> work.
+
+---
+
+## Adapting this to your own deploy
+
+`deploy/*.conf` and `deploy/filmgraph-api.service` are **the exact files running on the live
+server**, not templates. That is on purpose: section 11 checks for configuration drift with a plain
+`diff` between the repo and `/etc/nginx/`, and a diff can only do that if both sides are the same
+concrete text. A file full of `<your-domain-here>` placeholders would make every deploy show a
+difference, which trains you to ignore the check that exists to catch a real one.
+
+The cost of that choice is this section. Before deploying your own copy, replace:
+
+| What | Where | Current value |
+|---|---|---|
+| App hostname | `deploy/nginx-site.conf` - `server_name` (x2), `if ($host = ...)` | `filmgraph.vosokin.dev` |
+| Apex + `www` | `deploy/nginx-landing.conf` - `server_name` (x2), `if ($host = ...)` (x2) | `vosokin.dev`, `www.vosokin.dev` |
+| Certificate path | both `.conf` files - `ssl_certificate`, `ssl_certificate_key` | `/etc/letsencrypt/live/vosokin.dev/` |
+| Linux user and paths | `deploy/filmgraph-api.service` - `User`, `WorkingDirectory`, `EnvironmentFile`, `ExecStart` | `ubuntu`, `/home/ubuntu/filmgraph` |
+| Frontend document root | `deploy/nginx-site.conf` - `root` | `/home/ubuntu/filmgraph/frontend/dist` |
+| reCAPTCHA site key | `frontend/.env.production` | a key registered to `vosokin.dev` only |
+
+Find every occurrence before you start, and again after editing:
+
+```bash
+grep -rn "vosokin" deploy/ frontend/.env.production README.md DEPLOYMENT.md
+```
+
+Two that bite quietly:
+
+- **The certificate lineage is named after the first `-d` on the certbot command**, not after each
+  hostname. If your apex differs, `/etc/letsencrypt/live/<name>/` differs too, and Nginx fails to
+  start with a path error rather than anything about certificates.
+- **A reCAPTCHA site key is bound to its domains.** Ours will not validate for your hostname.
+  Register your own key at the [reCAPTCHA admin
+  console](https://www.google.com/recaptcha/admin), put the site key in `frontend/.env.production`
+  and the secret in `backend/.env`, or set `RECAPTCHA_ENABLED=false` and skip it. Login and
+  registration fail with a verification error otherwise, which reads like a password problem and
+  is not.
+
+The certificate paths are the one thing you should **not** hand-edit ahead of time. Let certbot
+write them in section 9, then copy its output back into the repo, exactly as described in
+[section 11's step 7 note](#11-redeploying).
 
 ---
 
@@ -43,10 +94,14 @@ ssh -i your-key.pem ubuntu@<elastic-ip>
 sudo apt update && sudo apt upgrade -y
 sudo ufw allow OpenSSH
 sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-The host firewall is a second layer behind the security group, not a replacement for it.
+The host firewall is a second layer behind the security group, not a replacement for it. **Both
+layers must allow a port, or nothing reaches Nginx.** Open 443 here even though nothing serves it
+until step 9: a port closed in one layer and open in the other fails as a *hang*, not a refusal,
+and leaves nothing in any log to find.
 
 **Add swap before installing anything.** A 1 GB instance has no headroom, and the OOM killer
 reliably picks MySQL. This survives reboots, unlike `swapon` alone.
@@ -233,19 +288,26 @@ so `rm -rf node_modules` afterwards is a fair way to reclaim disk on a full inst
 
 ## 8. Install and configure Nginx
 
-Nginx serves the built frontend and reverse-proxies `/api/` to `127.0.0.1:8000`. Two files, both
+Nginx serves the built frontend and reverse-proxies `/api/` to `127.0.0.1:8000`. Three files, all
 in the repo:
 
 | repo file | goes to | carries |
 |---|---|---|
 | `deploy/nginx.conf` | `/etc/nginx/nginx.conf` | `server_tokens off`, the `login` and `register` rate-limit zones |
-| `deploy/nginx-site.conf` | `/etc/nginx/sites-available/filmgraph` | the server block, security headers, both rate limits |
+| `deploy/nginx-site.conf` | `/etc/nginx/sites-available/filmgraph` | the app server block, security headers, both rate limits |
+| `deploy/nginx-landing.conf` | `/etc/nginx/sites-available/landing` | the apex landing page |
+
+**Edit the hostnames before copying.** Both `.conf` files name `vosokin.dev`; see
+[Adapting this to your own deploy](#adapting-this-to-your-own-deploy) for the full list. Nothing
+substitutes them for you, and a `server_name` that matches no request does not error, it just
+hands every request to another block.
 
 ```bash
-sudo cp ~/filmgraph/deploy/nginx.conf /etc/nginx/nginx.conf
-sudo cp ~/filmgraph/deploy/nginx-site.conf /etc/nginx/sites-available/filmgraph
-sudo sed -i "s/<elastic-ip-or-domain>/$(curl -s ifconfig.me)/" /etc/nginx/sites-available/filmgraph
+sudo cp ~/filmgraph/deploy/nginx.conf         /etc/nginx/nginx.conf
+sudo cp ~/filmgraph/deploy/nginx-site.conf    /etc/nginx/sites-available/filmgraph
+sudo cp ~/filmgraph/deploy/nginx-landing.conf /etc/nginx/sites-available/landing
 sudo ln -sf /etc/nginx/sites-available/filmgraph /etc/nginx/sites-enabled/
+sudo ln -sf /etc/nginx/sites-available/landing   /etc/nginx/sites-enabled/
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t                    # always before reload - a broken config takes the site down
 sudo systemctl reload nginx
@@ -283,19 +345,53 @@ Login posts a password, so **HTTPS is a requirement, not a hardening step** - an
 browsers can't reliably reach a plain-HTTP bare IP at all. Let's Encrypt won't issue for an IP, so
 a domain comes first:
 
+Certbot validates over **port 80** (HTTP-01), so it can succeed while 443 is still unreachable.
+Open 443 in **both** the security group and `ufw` before starting, and verify it afterwards.
+
+Every name on the certificate needs a `server` block already answering on port 80, or `--nginx`
+cannot install the certificate for it. This deploy serves two: `deploy/nginx-site.conf` (the app,
+on a subdomain) and `deploy/nginx-landing.conf` (a static landing page on the apex). Install both,
+confirm every name answers over plain HTTP, then run certbot once for the whole set:
+
 ```bash
+curl -sI http://filmgraph.vosokin.dev/ | head -1     # 200 before certbot
+curl -sI http://vosokin.dev/           | head -1     # 200 before certbot
+
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d yourdomain.com
+sudo certbot --nginx -d vosokin.dev -d www.vosokin.dev -d filmgraph.vosokin.dev
 ```
 
-Certbot adds the certificate, the 80→443 redirect, and auto-renewal. Then open **443** in the
-security group and keep 80 open so the redirect works.
+Substitute your own names in all four commands above. The certificate lineage takes its directory
+name from the **first** `-d`, which is what the `ssl_certificate` paths in both `.conf` files must
+then point at.
+
+Check with `curl`, not a browser: `.dev` is on the HSTS preload list, so browsers refuse plain
+HTTP to it outright and a working server looks like a broken one.
+
+Certbot rewrites each site file in place, converting the existing block to `listen 443 ssl` and
+adding a port-80 block that redirects. It does **not** add HSTS; that line ships in both repo
+files and belongs at server level in the 443 block, since an `add_header` inside a `location`
+discards everything inherited.
+
+```bash
+curl -sI http://filmgraph.vosokin.dev/  | head -1     # 301
+curl -sI https://filmgraph.vosokin.dev/ | head -1     # 200
+curl -sI https://filmgraph.vosokin.dev/ | grep -i strict-transport
+sudo certbot renew --dry-run
+```
+
+A **hang** on the HTTPS check is a dropped packet, not a dead service: check `sudo ufw status`
+and the security group. `Connection refused` instead means Nginx is not listening. Note that
+`renew --dry-run` proves renewal and proves nothing about whether 443 is reachable.
+
+Set `COOKIE_SECURE=true` in `backend/.env` and restart the API in the same pass, or the `Secure`
+flag on both cookies stays off on a site that now has TLS.
 
 ## 10. Verify end-to-end
 
 A freshly seeded database has **no accounts**, so this starts anonymous and registers.
 
-1. `http://<elastic-ip>/` loads the movie list with no login wall, 10 rows.
+1. `https://filmgraph.vosokin.dev/` loads the movie list with no login wall, 10 rows.
 2. Dev tools → Network: API calls go to `/api/...` on the **same origin**, no CORS errors.
 3. Sort by **Year**; click into a movie and a star; search from the header box.
 4. Add something to the cart **while logged out**; the badge counts it.
@@ -345,14 +441,15 @@ cd ../frontend && npm ci && npm run build
 grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked" || echo "clean"
 
 # 7. reinstall the nginx config if it changed. `git pull` does NOT do this
-diff <(sed 's/server_name .*/server_name X;/' ~/filmgraph/deploy/nginx-site.conf) \
-     <(sed 's/server_name .*/server_name X;/' /etc/nginx/sites-available/filmgraph)
-diff ~/filmgraph/deploy/nginx.conf /etc/nginx/nginx.conf
-# if either differs:
-sudo cp ~/filmgraph/deploy/nginx.conf      /etc/nginx/nginx.conf
-sudo cp ~/filmgraph/deploy/nginx-site.conf /etc/nginx/sites-available/filmgraph
-sudo sed -i "s/<elastic-ip-or-domain>/$(curl -s ifconfig.me)/" /etc/nginx/sites-available/filmgraph
+diff ~/filmgraph/deploy/nginx-site.conf    /etc/nginx/sites-available/filmgraph
+diff ~/filmgraph/deploy/nginx-landing.conf /etc/nginx/sites-available/landing
+diff ~/filmgraph/deploy/nginx.conf         /etc/nginx/nginx.conf
+# if any differs:
+sudo cp ~/filmgraph/deploy/nginx.conf         /etc/nginx/nginx.conf
+sudo cp ~/filmgraph/deploy/nginx-site.conf    /etc/nginx/sites-available/filmgraph
+sudo cp ~/filmgraph/deploy/nginx-landing.conf /etc/nginx/sites-available/landing
 sudo nginx -t && sudo systemctl reload nginx
+sudo nginx -T | grep -c "listen 443"          # 2. a 0 here means you just took the site off TLS
 
 # 8. watch the journal in a second session while you click through
 sudo journalctl -u filmgraph-api -f
@@ -371,10 +468,12 @@ Notes:
 - **Step 7 is the one that gets forgotten.** Nginx reads `/etc/nginx/`, not the repo, so pulling a
   changed `deploy/nginx*.conf` changes nothing until it is copied. The failure is silent: rate
   limiting and security headers simply do not exist, and every request still succeeds.
-  The `server_name` substitution matters too. The repo file carries a placeholder, so copying it
-  verbatim leaves `server_name <elastic-ip-or-domain>;`, which matches no request and hands the
-  site to the default server. The `sed` in both diffs normalises that difference so only real
-  changes show up.
+  **The certbot hazard.** Certbot edits `/etc/nginx/sites-available/*` in place, so those files and
+  the repo copies are the same artifact. The repo carries the post-certbot version, `listen 443
+  ssl` and cert paths included, which is why the diffs above are plain and why there is no longer
+  a `server_name` placeholder to substitute. Regenerate a repo file from a pre-TLS version and
+  copying it silently takes the site off HTTPS: on a preloaded TLD like `.dev` that is not a
+  degraded site, it is an unreachable one. The `listen 443` count is the guard.
   Confirm the result against nginx rather than the API, since port 8000 bypasses it entirely:
   ```bash
   sudo nginx -T | grep limit_req
