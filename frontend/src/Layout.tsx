@@ -60,9 +60,9 @@ function Header() {
         <div className="app-header__user">
           {loading ? null : customer ? (
             <>
-              <span className="app-header__name">
+              <Link to="/profile" className="app-header__name">
                 {customer.firstName} {customer.lastName}
-              </span>
+              </Link>
               <Button variant="ghost" size="sm" onClick={logout} pending={loggingOut}>
                 <LogOutIcon size={14} />
                 Log out

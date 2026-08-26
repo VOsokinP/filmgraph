@@ -13,6 +13,7 @@ import SingleStar from "./pages/SingleStar";
 import Cart from "./pages/Cart";
 import Confirmation from "./pages/Confirmation";
 import Payment from "./pages/Payment";
+import Profile from "./pages/Profile";
 
 export default function App() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
             <Route element={<ProtectedRoute />}>
               <Route path="/payment" element={<Payment />} />
               <Route path="/confirmation/:orderId" element={<Confirmation />} />
+              <Route path="/profile" element={<Profile />} />
             </Route>
           </Route>
           <Route path="*" element={<NotFound />} />

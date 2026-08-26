@@ -54,7 +54,7 @@ export default function Payment() {
         { first_name: firstName, last_name: lastName, card_number: cardNumber, expiration },
       );
       await refreshCount();
-      navigate(`/confirmation/${confirmation.order_id}`, { state: confirmation });
+      navigate(`/confirmation/${confirmation.order_id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Payment failed");
     } finally {
