@@ -344,7 +344,17 @@ free -h
 cd ../frontend && npm ci && npm run build
 grep -r "localhost:8000" dist/ && echo "WARNING: localhost leaked" || echo "clean"
 
-# 7. watch the journal in a second session while you click through
+# 7. reinstall the nginx config if it changed. `git pull` does NOT do this
+diff <(sed 's/server_name .*/server_name X;/' ~/filmgraph/deploy/nginx-site.conf) \
+     <(sed 's/server_name .*/server_name X;/' /etc/nginx/sites-available/filmgraph)
+diff ~/filmgraph/deploy/nginx.conf /etc/nginx/nginx.conf
+# if either differs:
+sudo cp ~/filmgraph/deploy/nginx.conf      /etc/nginx/nginx.conf
+sudo cp ~/filmgraph/deploy/nginx-site.conf /etc/nginx/sites-available/filmgraph
+sudo sed -i "s/<elastic-ip-or-domain>/$(curl -s ifconfig.me)/" /etc/nginx/sites-available/filmgraph
+sudo nginx -t && sudo systemctl reload nginx
+
+# 8. watch the journal in a second session while you click through
 sudo journalctl -u filmgraph-api -f
 ```
 
@@ -358,6 +368,20 @@ Notes:
 - **Step 5:** `active (running)` only means systemd started a process. `/health` returning 200 is
   what proves the app loaded its settings and reached MySQL.
 - **Step 6** needs no service restart - Nginx serves whatever is in `dist/` on the next request.
+- **Step 7 is the one that gets forgotten.** Nginx reads `/etc/nginx/`, not the repo, so pulling a
+  changed `deploy/nginx*.conf` changes nothing until it is copied. The failure is silent: rate
+  limiting and security headers simply do not exist, and every request still succeeds.
+  The `server_name` substitution matters too. The repo file carries a placeholder, so copying it
+  verbatim leaves `server_name <elastic-ip-or-domain>;`, which matches no request and hands the
+  site to the default server. The `sed` in both diffs normalises that difference so only real
+  changes show up.
+  Confirm the result against nginx rather than the API, since port 8000 bypasses it entirely:
+  ```bash
+  sudo nginx -T | grep limit_req
+  for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost/api/auth/login; done; echo
+  ```
+  Two `limit_req_zone` lines plus at least one `limit_req zone=` means it is live. A zone with no
+  `limit_req` using it does nothing at all.
 - If a required setting is missing, generate it with the commands in [step 5](#5-clone-configure-and-load-data).
 
 **Not a deploy step:** `backend/etl/` is a local batch importer for a separate XML dataset.
@@ -395,6 +419,7 @@ An empty API journal while requests are clearly arriving means they aren't reach
 | Frontend calls `localhost:8000` | `.env.production` missing at build time | 7 |
 | Public IP changed after a restart | No Elastic IP | 1 |
 | `Unable to locate package` | `universe` not enabled | 3 |
+| Rate limiting or security headers absent in production | nginx config never copied out of the repo, or `sites-enabled/default` still winning. `sudo nginx -T \| grep limit_req` shows the truth | 11.7 |
 | MySQL restart-looping, `Connection refused` on 3306 | OOM killed. Confirm with `sudo dmesg -T` and grep for `killed process`. Cause is no swap plus stock MySQL memory settings | 2, 4 |
 | A deploy step dies, or the box freezes | disk full or no swap. Check `df -h` and `free -h` before assuming the step itself is at fault | 2, 7 |
 
