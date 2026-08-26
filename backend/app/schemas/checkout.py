@@ -31,6 +31,13 @@ class SaleLine(BaseModel):
     quantity: int
     price: float
 
+class OrderOut(BaseModel):
+    id: int
+    orderDate: date
+    total: float
+    items: list[SaleLine]
+
+
 class ConfirmationOut(BaseModel):
     order_id: int
     items: list[SaleLine]
