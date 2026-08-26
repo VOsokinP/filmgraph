@@ -56,7 +56,7 @@ which would confirm it exists.
 | Backend | FastAPI, Pydantic v2, SQLAlchemy 2.0 Core, PyMySQL, Alembic, PyJWT, passlib/bcrypt |
 | Frontend | React 19, TypeScript, Vite, react-router-dom 7, oxlint. No CSS framework or component library - plain CSS driven by custom properties |
 | Database | MySQL 8, with FULLTEXT indexes on title, director and star name |
-| Tests / CI | pytest against a real MySQL schema, GitHub Actions |
+| Tests / CI | pytest against a real MySQL schema, Vitest + MSW on the frontend, GitHub Actions |
 | Containers | Docker multi-stage build, Compose stack for API + MySQL 8 |
 | Batch import | lxml streaming parser, CLI loader |
 | Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers |
@@ -228,7 +228,7 @@ asserting the sort allowlist and secondary-sort table can't drift apart.
 `.github/workflows/ci.yml` runs on every push and pull request:
 
 - **backend** - boots a `mysql:8` service container, applies migrations, runs pytest
-- **frontend** - `npm ci`, oxlint, and a production `vite build`
+- **frontend** - `npm ci`, oxlint, Vitest, and a production `vite build`
 
 Both run on Ubuntu from a clean checkout.
 
