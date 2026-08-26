@@ -19,6 +19,15 @@ def clean_customers():
         mark = conn.execute(text("SELECT COALESCE(MAX(id), 0) FROM customers")).scalar_one()
     yield
     with engine.begin() as conn:
+        conn.execute(
+            text(
+                "DELETE s FROM sales s JOIN orders o ON o.id = s.orderId "
+                "WHERE o.customerId > :mark"
+            ),
+            {"mark": mark},
+        )
+        conn.execute(text("DELETE FROM orders WHERE customerId > :mark"), {"mark": mark})
+        conn.execute(text("DELETE FROM creditcards WHERE customerId > :mark"), {"mark": mark})
         conn.execute(text("DELETE FROM customers WHERE id > :mark"), {"mark": mark})
 
 

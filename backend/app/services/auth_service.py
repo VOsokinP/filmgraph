@@ -3,6 +3,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
 from app.core.security import DUMMY_PASSWORD_HASH, hash_password, verify_password
+from app.services import cards_service
 
 def authenticate_customer(conn: Connection, email: str, password: str) -> dict | None:
     row = conn.execute(
@@ -41,9 +42,13 @@ def create_customer(
         conn.rollback()
         return None
 
+    customer_id = result.lastrowid
+    cards_service.create_demo_card(
+        conn, customer_id=customer_id, first_name=first_name, last_name=last_name
+    )
     conn.commit()
     return {
-        "id": result.lastrowid,
+        "id": customer_id,
         "firstName": first_name,
         "lastName": last_name,
         "email": email,

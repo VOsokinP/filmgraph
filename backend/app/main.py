@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api import auth, cart, checkout, genres, movies, stars
+from app.api import auth, cards, cart, checkout, genres, movies, stars
 from app.config import settings
 from app.dependencies import get_current_customer_id
 
@@ -24,6 +24,7 @@ app.include_router(stars.router, prefix="/api/stars", tags=["stars"])
 app.include_router(genres.router, prefix="/api/genres", tags=["genres"])
 app.include_router(cart.router, prefix="/api/cart", tags=["cart"])
 app.include_router(checkout.router, prefix="/api/checkout", tags=["checkout"], dependencies=_auth_required)
+app.include_router(cards.router, prefix="/api/cards", tags=["cards"], dependencies=_auth_required)
 
 @app.get("/health")
 def health():
