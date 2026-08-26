@@ -41,7 +41,6 @@ const LETTERS = [
     ...Array.from({ length: 10 }, (_, i) => String(i)),
     ...Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)),
 ];
-const SYMBOL_KEY = "*";
 const FILTER_KEYS = ["title", "year", "director", "star", "genreId", "startsWith"] as const;
 
 export default function MovieList() {
@@ -146,13 +145,13 @@ export default function MovieList() {
     const filterLabel = (key: string, value: string) => {
         if (key === "genreId") return `Genre: ${genres.find((g) => String(g.id) === value)?.name ?? value}`;
         if (key === "startsWith")
-            return value === SYMBOL_KEY ? "Starts with: symbol" : `Starts with: ${value}`;
+            return `Starts with: ${value}`;
         return `${key.charAt(0).toUpperCase()}${key.slice(1)}: ${value}`;
     };
 
     const browseHint = [
         activeGenreId && genres.find((g) => String(g.id) === activeGenreId)?.name,
-        activeLetter && (activeLetter === SYMBOL_KEY ? "Symbols" : activeLetter),
+        activeLetter,
     ]
         .filter(Boolean)
         .join(" · ");
@@ -233,15 +232,6 @@ export default function MovieList() {
                                         {c}
                                     </button>
                                 ))}
-                                <button
-                                    type="button"
-                                    className="chip"
-                                    aria-pressed={activeLetter === SYMBOL_KEY}
-                                    aria-label="Titles starting with a symbol"
-                                    onClick={() => toggleParam("startsWith", SYMBOL_KEY)}
-                                >
-                                    Other
-                                </button>
                             </div>
                         </div>
                     </div>

@@ -1,15 +1,17 @@
 from app.services.movies_service import (
     ALLOWED_SORT,
     DEFAULT_LIMIT,
-    SECONDARY_SORT,
+    SORT_FIELDS,
     _boolean_query,
     _fulltext_ready,
 )
 from tests.conftest import SEEDED_MOVIE_COUNT
 
 
-def test_sort_tables_cannot_disagree():
-    assert ALLOWED_SORT == set(SECONDARY_SORT)
+def test_every_secondary_sort_is_itself_a_sortable_field():
+    """One dict now, so the old drift is impossible. What can still break is a secondary
+    naming a column that is not sortable, which would reach ORDER BY unchecked."""
+    assert set(SORT_FIELDS.values()) <= ALLOWED_SORT
 
 
 def test_response_limit_matches_rows_returned(auth_client):

@@ -1,8 +1,9 @@
 from sqlalchemy import bindparam, text
 from sqlalchemy.engine import Connection
 
-ALLOWED_SORT = {"title", "year", "rating", "price"}
-SECONDARY_SORT = {"title": "rating", "year": "title", "rating": "title", "price": "title"}
+SORT_FIELDS = {"title": "rating", "year": "title", "rating": "title", "price": "title"}
+ALLOWED_SORT = frozenset(SORT_FIELDS)
+LETTER_BUCKET, DIGIT_BUCKET, SYMBOL_BUCKET = "0", "1", "2"
 ALLOWED_LIMITS = {10, 25, 50, 100}
 DEFAULT_LIMIT = 10
 FT_MIN_TOKEN_SIZE = 3
@@ -95,6 +96,25 @@ def get_movie_by_id(conn: Connection, movie_id: str) -> dict | None:
         "rating": rating_row["rating"] if rating_row else None,
     }
 
+def _order_column(field: str) -> str:
+    """Titles order by the generated key, so leading punctuation is ignored and letters
+    sort ahead of digits. Every other field orders by itself."""
+    return "sort_title" if field == "title" else field
+
+
+def _starts_with_prefix(starts_with: str) -> str | None:
+    """Translate a browse key into a prefix of sort_title, or None if it is not a valid key.
+
+    Returning a LIKE prefix rather than an expression keeps the index usable.
+    """
+    if starts_with == "*":
+        return f"{SYMBOL_BUCKET}%"
+    if len(starts_with) != 1 or not starts_with.isalnum():
+        return None
+    bucket = DIGIT_BUCKET if starts_with.isdigit() else LETTER_BUCKET
+    return f"{bucket}{starts_with}%"
+
+
 def search_movies(
         conn: Connection,
         *,
@@ -114,7 +134,8 @@ def search_movies(
     Returns the rows, the total match count, and the limit actually applied."""
     sort_by = sort_by if sort_by in ALLOWED_SORT else "rating"
     sort_dir = "ASC" if sort_dir.lower() == "asc" else "DESC"
-    secondary = SECONDARY_SORT[sort_by]
+    primary = _order_column(sort_by)
+    secondary = _order_column(SORT_FIELDS[sort_by])
     limit = limit if limit in ALLOWED_LIMITS else DEFAULT_LIMIT
     page = max(page, 1)
     offset = (page - 1) * limit
@@ -161,11 +182,10 @@ def search_movies(
             """)
             params["genre_id"] = genre_id
         if starts_with:
-            if starts_with == "*":
-                where.append("m.title REGEXP '^[^a-zA-Z0-9]'")
-            else:
-                where.append("m.title LIKE :starts_with")
-                params["starts_with"] = f"{starts_with}%"
+            prefix = _starts_with_prefix(starts_with)
+            if prefix is not None:
+                where.append("m.sort_title LIKE :starts_with")
+                params["starts_with"] = prefix
 
         return joins, where, params
 
@@ -180,7 +200,7 @@ def search_movies(
             LEFT JOIN ratings r ON m.id = r.movieId
             {' '.join(joins)}
             {where_clause}
-            ORDER BY {sort_by} {sort_dir}, {secondary} {sort_dir}
+            ORDER BY {primary} {sort_dir}, {secondary} {sort_dir}
             LIMIT :limit OFFSET :offset
         """)
         return conn.execute(query, params).mappings().all()
