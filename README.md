@@ -4,7 +4,10 @@
 
 A full-stack movie catalog: browse and search ~9,000 films, drill into a movie or an actor, build a
 cart, and check out. Built with a **FastAPI** JSON API, a **React + TypeScript** single-page
-frontend, and **MySQL 8**, deployed to AWS EC2 behind Nginx.
+frontend, and **MySQL 8**, deployed to AWS EC2 behind Nginx over TLS.
+
+**Live: <https://filmgraph.vosokin.dev>** - browsing needs no account. Registering takes a few
+seconds and is only required to check out.
 
 ## Features
 
@@ -245,10 +248,15 @@ One AWS EC2 instance (`t3.micro`, Ubuntu 24.04): Nginx serves the built frontend
 `/api/...` to Gunicorn/Uvicorn on `127.0.0.1:8000`.
 The backend runs under systemd and restarts on crash or reboot.
 
-Full walkthrough and the redeploy runbook are in [`DEPLOYMENT.md`](./DEPLOYMENT.md).
+Full walkthrough and the redeploy runbook are in [`DEPLOYMENT.md`](./DEPLOYMENT.md). The files
+under `deploy/` are the real ones from the live server rather than templates, so they hard-code a
+domain, a certificate path and a Linux user. Deploying your own copy means editing them first:
+[Adapting this to your own deploy](./DEPLOYMENT.md#adapting-this-to-your-own-deploy) lists every
+value.
 
-**Live demo:** the instance runs on demand rather than continuously, so there's no permanent public
-link yet. Available on request for a walkthrough.
+TLS comes from Let's Encrypt via certbot, with the HTTP→HTTPS redirect and automatic renewal.
+`.dev` is on the browser HSTS preload list, so plain HTTP to this host is refused by the browser
+before a request is ever made.
 
 ## Project Layout
 

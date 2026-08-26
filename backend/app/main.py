@@ -15,7 +15,12 @@ logging.basicConfig(
 
 app = FastAPI(title = "FilmGraph API")
 
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret_key, same_site = "lax")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret_key,
+    same_site = "lax",
+    https_only=settings.cookie_secure,
+)
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
+from app.config import settings
 from app.core.recaptcha import verify_recaptcha
 from app.core.security import create_access_token
 from app.dependencies import get_current_customer_id, get_db
@@ -19,7 +20,7 @@ def _issue_session_cookie(response: Response, customer_id: int) -> None:
         value=create_access_token(customer_id),
         httponly=True,
         samesite="lax",
-        secure=False, # flip to True once served over HTTPS
+        secure=settings.cookie_secure,
         max_age=60 * 60 * 24 * 7, # 7 days
         path="/",
     )
