@@ -83,6 +83,17 @@
   white-space: nowrap;
 }
 
+.app-header__link {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.app-header__link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
 .app-header__logout-error {
   font-size: var(--text-sm);
   color: var(--danger);
@@ -455,6 +466,13 @@
   font-size: var(--text-lg);
   font-weight: 700;
   color: var(--text);
+}
+
+.auth__alt {
+  margin-top: var(--space-5);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
 }
 
 .auth__foot {

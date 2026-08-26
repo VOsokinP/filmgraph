@@ -7,7 +7,11 @@ import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
 import { AlertIcon, ChevronLeftIcon, FilmIcon } from '../components/ui/Icons';
 
-export default function Login() {
+const MIN_PASSWORD_LENGTH = 8;
+
+export default function Register() {
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -22,7 +26,7 @@ export default function Login() {
         setError(null);
         setPending(true);
         try {
-            await apiPost('/auth/login', { email, password });
+            await apiPost('/auth/register', { firstName, lastName, email, password });
             await refresh();
             navigate(from, { replace: true });
         } catch (err) {
@@ -39,9 +43,25 @@ export default function Login() {
                     <FilmIcon size={22} className="brand__mark" />
                     FilmGraph
                 </Link>
-                <h1 className="auth__title">Log in</h1>
+                <h1 className="auth__title">Create an account</h1>
 
                 <form className="form" onSubmit={handleSubmit}>
+                    <div className="form__row">
+                        <Field
+                            label="First name"
+                            value={firstName}
+                            onChange={(e) => setFirstName(e.target.value)}
+                            autoComplete="given-name"
+                            required
+                        />
+                        <Field
+                            label="Last name"
+                            value={lastName}
+                            onChange={(e) => setLastName(e.target.value)}
+                            autoComplete="family-name"
+                            required
+                        />
+                    </div>
                     <Field
                         label="Email"
                         type="email"
@@ -56,7 +76,8 @@ export default function Login() {
                         type="password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        autoComplete="current-password"
+                        autoComplete="new-password"
+                        minLength={MIN_PASSWORD_LENGTH}
                         required
                     />
                     {error && (
@@ -66,14 +87,14 @@ export default function Login() {
                         </p>
                     )}
                     <Button type="submit" variant="primary" block pending={pending}>
-                        Log in
+                        Create account
                     </Button>
                 </form>
 
                 <p className="auth__alt">
-                    New here?{' '}
-                    <Link to="/register" state={{ from }} className="link-quiet">
-                        Create an account
+                    Already have an account?{' '}
+                    <Link to="/login" state={{ from }} className="link-quiet">
+                        Log in
                     </Link>
                 </p>
 

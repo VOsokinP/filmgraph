@@ -74,9 +74,14 @@ function Header() {
               )}
             </>
           ) : (
-            <Link to="/login" className="btn btn--secondary btn--sm">
-              Log in
-            </Link>
+            <>
+              <Link to="/register" className="app-header__link">
+                Register
+              </Link>
+              <Link to="/login" className="btn btn--secondary btn--sm">
+                Log in
+              </Link>
+            </>
           )}
         </div>
       </div>

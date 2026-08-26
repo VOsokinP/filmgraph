@@ -6,6 +6,7 @@ import Layout from "./Layout";
 import Login from "./pages/Login";
 import MovieList from "./pages/MovieList";
 import NotFound from "./pages/NotFound";
+import Register from "./pages/Register";
 import SingleMovie from "./pages/SingleMovie";
 import SingleStar from "./pages/SingleStar";
 
@@ -19,6 +20,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route element={<Layout />}>
             <Route path="/" element={<MovieList />} />
             <Route path="/movies/:id" element={<SingleMovie />} />
