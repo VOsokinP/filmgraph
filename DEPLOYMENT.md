@@ -458,6 +458,18 @@ sudo tail -f /var/log/nginx/access.log
 
 An empty API journal while requests are clearly arriving means they aren't reaching the app - check Nginx and the `proxy_pass` target.
 
+**Watching reCAPTCHA scores.** Every verification logs its score, so before enforcing a threshold you
+can see what real visitors actually score. Set `RECAPTCHA_MIN_SCORE=0` in `backend/.env`, which
+validates the token and logs the score without rejecting anything, then:
+
+```bash
+sudo journalctl -u filmgraph-api -f | grep -i recaptcha
+```
+
+Log in and register a few times from an ordinary browser. Human traffic usually scores `0.9`. Once
+you have seen a handful, raise the threshold to `0.5` and restart. These lines are `INFO`, so
+`LOG_LEVEL` above that hides them.
+
 | Symptom | Likely cause | Step |
 |---|---|---|
 | Service starts then crash-loops | `EnvironmentFile` missing, or a required setting absent from `.env` | 6, 11.3 |

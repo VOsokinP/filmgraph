@@ -13,7 +13,14 @@ cart anonymously, and are asked to register or log in at payment. The cart survi
 since it lives in a signed session cookie rather than a table.
 
 **Accounts** - self-serve registration with bcrypt-hashed passwords, and a JWT issued in an httpOnly
-cookie and verified on every request. Failed logins return one generic message for both
+cookie and verified on every request. Both auth endpoints are rate limited at the edge and verified
+with **reCAPTCHA v3**, which is invisible and score-based, so a visitor never sees a challenge.
+
+The verifier separates two things that are easy to conflate. Google returning *"this is a bot"* is a
+verdict and is enforced. Google being unreachable or slow is not a verdict, so the request is allowed
+and logged: a demo should not be unreachable because a third party is, and the rate limit is still
+standing behind it. Setting the score threshold to `0` runs it in log-only mode, which is how you
+watch real scores before enforcing anything. Failed logins return one generic message for both
 unknown-email and wrong-password, and the miss path runs a dummy hash verification so response time
 doesn't leak which emails are registered. Passwords are capped at 72 **bytes**, the point past which
 bcrypt silently ignores input.
@@ -271,7 +278,7 @@ docker-compose.yml        # local stack - API + MySQL 8
 
 - [x] Read-only browsing - movie list, movie detail, star detail, cross-linked
 - [x] Schema managed entirely by Alembic
-- [x] Auth - bcrypt, JWT cookie, gated reCAPTCHA
+- [x] Auth - bcrypt, JWT cookie, reCAPTCHA v3, rate-limited login and registration
 - [x] Search, browse, sort, pagination
 - [x] Cart and transactional checkout
 - [x] Public browsing, with login required only at checkout
