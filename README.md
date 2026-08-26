@@ -18,8 +18,18 @@ unknown-email and wrong-password, and the miss path runs a dummy hash verificati
 doesn't leak which emails are registered. Passwords are capped at 72 **bytes**, the point past which
 bcrypt silently ignores input.
 
-**Search and browse** - by title, year, director, or star, combined with AND logic and substring
-matching (exact for year). Browse by genre or by title's first letter.
+**Search** - by title, year, director, or star, combined with AND logic, plus a title box in the
+header that works from any page. Browse by genre or by title's first letter.
+
+Title, director and star name are matched with **MySQL FULLTEXT** indexes rather than
+`LIKE '%term%'`, which cannot use an index and scanned 60,000 star names on every search. Terms
+below `innodb_ft_min_token_size` fall back to `LIKE`, since FULLTEXT cannot index them at all, and a
+search that FULLTEXT answers with nothing is retried the same way, which is what keeps a title
+starting with a stopword findable.
+
+Median search latency went **73 ms to 4 ms**, of which roughly 9x came from removing a per-request
+aggregate over the whole cast table that profiling found was 95% of the request, and 2x from the
+FULLTEXT indexes themselves. Method and per-query numbers are recorded outside this repo.
 
 **Movie list** - sortable by title, year, rating, or price in either direction, with a stable
 secondary sort and prev/next pagination. Page size is clamped server-side to a fixed allowlist, and
@@ -45,7 +55,7 @@ which would confirm it exists.
 |---|---|
 | Backend | FastAPI, Pydantic v2, SQLAlchemy 2.0 Core, PyMySQL, Alembic, PyJWT, passlib/bcrypt |
 | Frontend | React 19, TypeScript, Vite, react-router-dom 7, oxlint. No CSS framework or component library - plain CSS driven by custom properties |
-| Database | MySQL 8 |
+| Database | MySQL 8, with FULLTEXT indexes on title, director and star name |
 | Tests / CI | pytest against a real MySQL schema, GitHub Actions |
 | Containers | Docker multi-stage build, Compose stack for API + MySQL 8 |
 | Batch import | lxml streaming parser, CLI loader |
@@ -270,6 +280,6 @@ docker-compose.yml        # local stack - API + MySQL 8
 - [x] pytest suite against a real MySQL schema, GitHub Actions CI
 - [x] Error states and retry on every failed request
 - [x] Streaming XML parse feeding batched inserts (lxml), 45k rows/sec
-- [x] MySQL FULLTEXT search replacing `LIKE` matching
+- [x] MySQL FULLTEXT search replacing `LIKE` matching, 73 ms to 4 ms median
 - [x] Docker - multi-stage image (334 MB runtime, down from 771 MB) + Compose stack
 - [ ] HTTPS and a persistent public URL
