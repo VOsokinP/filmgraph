@@ -394,6 +394,56 @@ appendix A10.
 
 ---
 
+## 12. Backups
+
+The database holds the only copy of anything a visitor created: accounts, orders, sales. Movie data
+is reproducible from the seed asset; that is not.
+
+### Before anything risky
+
+Take an EBS snapshot from the AWS console before a migration you are unsure about, or before going
+public. It captures the whole volume and costs pennies. Restoring means launching an instance from
+the snapshot, so it is disaster recovery rather than a quick undo.
+
+### Routine dumps
+
+`deploy/backup-db.sh` reads credentials from `backend/.env`, so the password lives in one place:
+
+```bash
+chmod +x ~/filmgraph/deploy/backup-db.sh
+~/filmgraph/deploy/backup-db.sh
+```
+
+Writes `~/filmgraph-backups/moviedb-<timestamp>.sql.gz` and keeps the newest 7. The dump is around
+2 MB gzipped and takes seconds. Weekly, if you want it unattended:
+
+```bash
+crontab -e
+0 4 * * 0 /home/ubuntu/filmgraph/deploy/backup-db.sh >> /home/ubuntu/backup.log 2>&1
+```
+
+**Know what this does not protect against.** The dumps sit on the same disk as the database, so they
+cover a bad migration or a mistaken `DELETE`, which is what actually happens, and not the loss of the
+volume. Copy anything you care about off the box, or rely on the snapshot for that case. Sending
+dumps to S3 is the proper fix and wants an IAM instance role rather than keys on disk.
+
+### Restoring
+
+Verified end to end on 2026-08-26, restoring a dump into a scratch schema: every table matched row
+for row, the generated `sort_title` column recomputed correctly, and `alembic_version` came through,
+so the restored database is immediately usable without re-running migrations.
+
+```bash
+mysql -u root -p -e "CREATE DATABASE restore_check CHARACTER SET utf8mb4;"
+gunzip -c ~/filmgraph-backups/moviedb-<timestamp>.sql.gz   | mysql -u appuser -p --default-character-set=utf8mb4 restore_check
+mysql -u appuser -p -e "SELECT COUNT(*) FROM restore_check.customers;"
+```
+
+Restore into a scratch schema first and compare, rather than over the live database. Do this once
+now rather than for the first time during an incident: **an untested backup is a guess.**
+
+---
+
 ## Troubleshooting
 
 Start with logs, not guesses:
