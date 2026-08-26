@@ -1,5 +1,8 @@
-import { Link, useLocation, useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
+import { apiGet, errorMessage, isAuthRedirect } from "../api/client";
+import ErrorState from "../components/ui/ErrorState";
 import { CheckIcon } from "../components/ui/Icons";
 
 interface SaleLine {
@@ -8,33 +11,45 @@ interface SaleLine {
   quantity: number;
   price: number;
 }
-interface ConfirmationState {
-  order_id: number;
-  items: SaleLine[];
+interface Order {
+  id: number;
+  orderDate: string;
   total: number;
+  items: SaleLine[];
 }
 
 export default function Confirmation() {
   const { orderId } = useParams();
-  const location = useLocation();
-  const confirmation = location.state as ConfirmationState | undefined;
+  const [order, setOrder] = useState<Order | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (!confirmation) {
-    // Direct visit or a refresh; router state doesn't survive either. A future
-    // GET /api/orders/{id} endpoint would fix this properly; noted as a follow-up, not built here.
+  const load = useCallback(() => {
+    let cancelled = false;
+    setError(null);
+    setOrder(null);
+    apiGet<Order>(`/orders/${orderId}`)
+      .then((result) => {
+        if (!cancelled) setOrder(result);
+      })
+      .catch((err) => {
+        if (!cancelled && !isAuthRedirect(err)) setError(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
+  useEffect(load, [load]);
+
+  if (error) {
+    return <ErrorState message={error} title="Couldn't load this order" onRetry={load} />;
+  }
+
+  if (!order) {
     return (
-      <div className="narrow">
-        <div className="confirm-head">
-          <span className="confirm-head__icon">
-            <CheckIcon size={26} />
-          </span>
-          <h1>Order placed</h1>
-          <p className="confirm-head__order">Order #{orderId}</p>
-          <p className="muted">Refreshing this page lost the line-item details for this order.</p>
-        </div>
-        <Link to="/" className="btn btn--primary btn--block">
-          Back to movie list
-        </Link>
+      <div className="narrow stack-sm" aria-busy="true">
+        <span className="skeleton" style={{ width: "60%", height: "2em" }} />
+        <span className="skeleton" style={{ width: "100%", height: "6em" }} />
       </div>
     );
   }
@@ -46,12 +61,12 @@ export default function Confirmation() {
           <CheckIcon size={26} />
         </span>
         <h1>Order confirmed</h1>
-        <p className="confirm-head__order">Order #{confirmation.order_id}</p>
+        <p className="confirm-head__order">Order #{order.id}</p>
       </div>
 
       <div className="table-wrap">
         <table className="table">
-          <caption className="visually-hidden">Items in order {confirmation.order_id}</caption>
+          <caption className="visually-hidden">Items in order {order.id}</caption>
           <thead>
             <tr>
               <th scope="col">
@@ -66,9 +81,13 @@ export default function Confirmation() {
             </tr>
           </thead>
           <tbody>
-            {confirmation.items.map((item) => (
+            {order.items.map((item) => (
               <tr key={item.movie_id}>
-                <td>{item.title}</td>
+                <td>
+                  <Link className="title-cell" to={`/movies/${item.movie_id}`}>
+                    {item.title}
+                  </Link>
+                </td>
                 <td className="num">{item.quantity}</td>
                 <td className="num">${item.price.toFixed(2)}</td>
               </tr>
@@ -78,13 +97,19 @@ export default function Confirmation() {
       </div>
 
       <div className="panel summary" style={{ marginTop: 'var(--space-5)' }}>
-        <div className="summary__row summary__row--total" style={{ paddingTop: 0, borderTop: 'none' }}>
-          <span>Total paid</span>
+        <div className="summary__row summary__row--total">
+          <span>Total</span>
           <span className="summary__amount summary__amount--total">
-            ${confirmation.total.toFixed(2)}
+            ${order.total.toFixed(2)}
           </span>
         </div>
-        <Link to="/" className="btn btn--secondary btn--block">
+      </div>
+
+      <div className="confirm-actions">
+        <Link to="/profile" className="btn btn--secondary">
+          View all orders
+        </Link>
+        <Link to="/" className="btn btn--primary">
           Back to movie list
         </Link>
       </div>
