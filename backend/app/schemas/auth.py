@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.core.names import normalize_name
+
 MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_BYTES = 72
 
@@ -18,11 +20,11 @@ class RegisterRequest(BaseModel):
 
     @field_validator("firstName", "lastName")
     @classmethod
-    def strip_name(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+    def tidy_name(cls, value: str) -> str:
+        normalized = normalize_name(value)
+        if not normalized:
             raise ValueError("must not be blank")
-        return stripped
+        return normalized
 
     @field_validator("password")
     @classmethod
