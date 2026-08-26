@@ -1,13 +1,21 @@
-import { useState, type SubmitEvent } from "react";
+import { useEffect, useState, type SubmitEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { apiPost } from "../api/client";
+import { apiGet, apiPost } from "../api/client";
 import { useCartCount } from "../cart/CartCountContext";
 import Button from "../components/ui/Button";
 import Field from "../components/ui/Field";
 import { AlertIcon, ChevronLeftIcon } from "../components/ui/Icons";
 
+interface DemoCard {
+  id: string;
+  firstName: string;
+  lastName: string;
+  expiration: string;
+}
+
 export default function Payment() {
+  const [card, setCard] = useState<DemoCard | null>(null);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [cardNumber, setCardNumber] = useState("");
@@ -16,6 +24,25 @@ export default function Payment() {
   const [pending, setPending] = useState(false);
   const { refreshCount } = useCartCount();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<DemoCard>("/cards/me")
+      .then((issued) => {
+        if (cancelled) return;
+        setCard(issued);
+        setFirstName(issued.firstName);
+        setLastName(issued.lastName);
+        setCardNumber(issued.id);
+        setExpiration(issued.expiration);
+      })
+      .catch(() => {
+        if (!cancelled) setCard(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const submit = async (event: SubmitEvent) => {
     event.preventDefault();
@@ -56,6 +83,7 @@ export default function Payment() {
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 autoComplete="cc-given-name"
+                readOnly={card !== null}
                 required
               />
               <Field
@@ -63,6 +91,7 @@ export default function Payment() {
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 autoComplete="cc-family-name"
+                readOnly={card !== null}
                 required
               />
             </div>
@@ -78,6 +107,8 @@ export default function Payment() {
                 placeholder="1234 5678 9012 3456"
                 inputMode="numeric"
                 autoComplete="cc-number"
+                readOnly={card !== null}
+                hint={card ? "Demo card issued with your account" : undefined}
                 required
               />
               <Field
@@ -86,6 +117,7 @@ export default function Payment() {
                 value={expiration}
                 onChange={(e) => setExpiration(e.target.value)}
                 autoComplete="cc-exp"
+                readOnly={card !== null}
                 required
               />
             </div>
@@ -102,8 +134,9 @@ export default function Payment() {
             Place order
           </Button>
           <p className="buybox__note">
-            Mock checkout. Card details are validated against seeded test data, and no real payment
-            is processed.
+            {card
+              ? "Mock checkout. These are the demo card details issued with your account, and no real payment is processed."
+              : "Mock checkout. Card details are validated against seeded test data, and no real payment is processed."}
           </p>
         </form>
       </div>

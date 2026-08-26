@@ -18,6 +18,13 @@ class PaymentInfo(BaseModel):
     def normalize_card_number(cls, value: str) -> str:
         return value.replace(" ", "").replace("-", "")
 
+class CardOut(BaseModel):
+    id: str
+    firstName: str
+    lastName: str
+    expiration: date
+
+
 class SaleLine(BaseModel):
     movie_id: str
     title: str

@@ -345,6 +345,12 @@ a.btn:hover {
     box-shadow var(--dur) var(--ease);
 }
 
+.input[readonly] {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .input::placeholder {
   color: var(--text-faint);
 }
