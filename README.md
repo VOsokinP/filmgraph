@@ -8,10 +8,15 @@ frontend, and **MySQL 8**, deployed to AWS EC2 behind Nginx.
 
 ## Features
 
-**Authentication** - email + password login, bcrypt-hashed credentials, JWT issued in an httpOnly
-cookie and verified on every request. Optional Google reCAPTCHA on the login form. Failed logins
-return one generic message for both unknown-email and wrong-password, and the miss path runs a dummy
-hash verification so response time doesn't leak which emails are registered.
+**Browsing is public; an account is only needed to check out.** Visitors search, browse and fill a
+cart anonymously, and are asked to register or log in at payment. The cart survives that transition,
+since it lives in a signed session cookie rather than a table.
+
+**Accounts** - self-serve registration with bcrypt-hashed passwords, and a JWT issued in an httpOnly
+cookie and verified on every request. Failed logins return one generic message for both
+unknown-email and wrong-password, and the miss path runs a dummy hash verification so response time
+doesn't leak which emails are registered. Passwords are capped at 72 **bytes**, the point past which
+bcrypt silently ignores input.
 
 **Search and browse** - by title, year, director, or star, combined with AND logic and substring
 matching (exact for year). Browse by genre or by title's first letter.
@@ -24,9 +29,15 @@ the response reports the limit actually applied rather than the one requested.
 cross-linked in both directions. Per-movie genres and stars are fetched in a fixed number of queries
 using `ROW_NUMBER() OVER (PARTITION BY ...)` rather than one query per row.
 
-**Cart and checkout** - cart state lives in a signed session cookie. Checkout verifies the card
-against the `creditcards` table and writes a real `orders` row plus one `sales` line item per movie,
-in a transaction that rolls back if any insert fails. Payment is mocked; no real processor.
+**Cart and checkout** - cart state lives in a signed session cookie. Registration issues each
+account a demo card, which checkout prefills read-only, so nobody has to invent card details and the
+card check stays a real per-user match rather than a formality. Checkout writes a real `orders` row
+plus one `sales` line item per movie, in a transaction that rolls back if any insert fails. Payment
+is mocked; no real processor.
+
+**Order history** - a profile page listing past orders with their films, each linking back to the
+movie. Orders are scoped to their owner, and another customer's order returns 404 rather than 403,
+which would confirm it exists.
 
 ## Tech Stack
 
@@ -121,6 +132,9 @@ place it at `backend/db/movie-data.sql`, then:
 ```bash
 mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
 ```
+
+The seed data contains **no accounts**: customers and their cards come from registration, so a
+freshly seeded database starts empty and the first visitor registers.
 
 A clean exit code doesn't prove every row landed - check one table before trusting the load:
 
@@ -250,6 +264,8 @@ docker-compose.yml        # local stack - API + MySQL 8
 - [x] Auth - bcrypt, JWT cookie, gated reCAPTCHA
 - [x] Search, browse, sort, pagination
 - [x] Cart and transactional checkout
+- [x] Public browsing, with login required only at checkout
+- [x] Self-serve registration, per-account demo card, order history
 - [x] Deployed to AWS EC2 behind Nginx + systemd
 - [x] pytest suite against a real MySQL schema, GitHub Actions CI
 - [x] Error states and retry on every failed request

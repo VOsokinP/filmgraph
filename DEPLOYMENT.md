@@ -156,12 +156,15 @@ SELECT 'movies' t, COUNT(*) n FROM movies UNION ALL SELECT 'stars', COUNT(*) FRO
 UNION ALL SELECT 'stars_in_movies', COUNT(*) FROM stars_in_movies
 UNION ALL SELECT 'genres_in_movies', COUNT(*) FROM genres_in_movies
 UNION ALL SELECT 'ratings', COUNT(*) FROM ratings
-UNION ALL SELECT 'creditcards', COUNT(*) FROM creditcards
-UNION ALL SELECT 'customers', COUNT(*) FROM customers
 UNION ALL SELECT 'genres', COUNT(*) FROM genres;"
 ```
 
-Expected: 9052 / 60150 / 79921 / 15615 / 7998 / 517 / 453 / 23. Anything short means a partial load.
+Expected: 9052 / 60150 / 79921 / 15615 / 7998 / 23. Anything short means a partial load.
+
+**The seed data carries no accounts.** Customers and their cards are created by registration, so a
+freshly seeded database has zero of both and the first visitor registers. Earlier versions of the
+asset shipped 453 customers with real bcrypt hashes from a public course dataset; those rows were
+removed on 2026-08-26 and the asset republished.
 
 ## 6. Run the backend under systemd
 
@@ -235,8 +238,8 @@ in the repo:
 
 | repo file | goes to | carries |
 |---|---|---|
-| `deploy/nginx.conf` | `/etc/nginx/nginx.conf` | `server_tokens off`, the `login` rate-limit zone |
-| `deploy/nginx-site.conf` | `/etc/nginx/sites-available/filmgraph` | the server block, security headers, the login rate limit |
+| `deploy/nginx.conf` | `/etc/nginx/nginx.conf` | `server_tokens off`, the `login` and `register` rate-limit zones |
+| `deploy/nginx-site.conf` | `/etc/nginx/sites-available/filmgraph` | the server block, security headers, both rate limits |
 
 ```bash
 sudo cp ~/filmgraph/deploy/nginx.conf /etc/nginx/nginx.conf
@@ -252,12 +255,14 @@ Removing `sites-enabled/default` is not optional. It is the default server, so w
 request whose `Host` does not match `server_name` is served by it, and your site config is silently
 ignored.
 
-**Login is rate limited** to 5 requests per minute per IP with a burst of 5, returning 429. Nothing
-else limits login attempts, so without this a public link is an open brute-force target. Verify
-after reload by sending a dozen rapid requests and watching the status flip to 429:
+**Login and registration are rate limited** per IP, in **separate zones** so exhausting one cannot
+lock out the other: login 5/min with a burst of 5, registration 3/min with a burst of 3, both
+returning 429. Registration is a public write endpoint, so without a limit a public link is an open
+invitation to fill the customers table. Verify both after reload:
 
 ```bash
 for i in $(seq 1 12); do curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost/api/auth/login; done; echo
+for i in $(seq 1 8);  do curl -s -o /dev/null -w "%{http_code} " -X POST http://localhost/api/auth/register; done; echo
 ```
 
 **Security headers** are set at server level: `X-Content-Type-Options: nosniff`,
@@ -288,15 +293,22 @@ security group and keep 80 open so the redirect works.
 
 ## 10. Verify end-to-end
 
-1. `http://<elastic-ip>/` loads `/login`.
-2. Log in; the movie list returns 10 rows.
-3. Dev tools → Network: API calls go to `/api/...` on the **same origin**, no CORS errors.
-4. Sort by **Year**; click into a movie and a star.
-5. Cart → payment → confirmation writes an order.
-6. **Hard-refresh while on `/cart`** - tests the `try_files` fallback.
-7. Visit `/nope` - the app's own "Page not found", not an Nginx 404.
-8. `sudo systemctl status filmgraph-api nginx` - both `active (running)`.
-9. AWS Console: security group still shows only 22 (your IP), 80, and 443. Nothing else.
+A freshly seeded database has **no accounts**, so this starts anonymous and registers.
+
+1. `http://<elastic-ip>/` loads the movie list with no login wall, 10 rows.
+2. Dev tools → Network: API calls go to `/api/...` on the **same origin**, no CORS errors.
+3. Sort by **Year**; click into a movie and a star; search from the header box.
+4. Add something to the cart **while logged out**; the badge counts it.
+5. Proceed to payment; you are sent to `/login`. Register instead.
+6. After registering you land back on payment, card prefilled and read-only, and the cart you
+   filled anonymously is still there.
+7. Checkout writes an order; the confirmation page survives a refresh.
+8. `/profile` lists the order, and the film links back to its page.
+9. Log out: the cart badge clears without a page reload.
+10. **Hard-refresh while on `/cart`** - tests the `try_files` fallback.
+11. Visit `/nope` - the app's own "Page not found", not an Nginx 404.
+12. `sudo systemctl status filmgraph-api nginx` - both `active (running)`.
+13. AWS Console: security group still shows only 22 (your IP), 80, and 443. Nothing else.
 
 ---
 
@@ -404,10 +416,13 @@ a weakness in either compromises both. `token_urlsafe` is deliberate over `opens
 quoting.
 
 #### A3. Seed data has no integrity check
-The published release asset was once missing all 453 `customers` rows, and the failure surfaced days
+The published release asset was once missing all its `customers` rows, and the failure surfaced days
 later as "login is broken on EC2" - pointing at MySQL, the loader, and the schema, when the fault
 was a file published earlier. An artifact with no checksum and no manifest is indistinguishable from
 a corrupted one, so verify the counts at load time rather than discovering it at first login.
+
+The asset no longer carries accounts at all, which retires that particular failure. The lesson
+generalises to any published artifact, so the row-count check in step 5 stays.
 
 #### A4. Logs you don't have
 Gunicorn without `--access-logfile -` writes nothing to the journal, so a 401 or a 500 leaves no
