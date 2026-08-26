@@ -545,6 +545,14 @@
   }
 }
 
+.grecaptcha-badge {
+  visibility: hidden;
+}
+
+body.recaptcha-in-use .grecaptcha-badge {
+  visibility: visible;
+}
+
 .auth {
   flex: 1;
   display: flex;

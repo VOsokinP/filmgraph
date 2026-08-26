@@ -2,6 +2,7 @@ import { useState, type SubmitEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../auth/AuthContext';
+import { useRecaptcha } from '../auth/useRecaptcha';
 import { apiPost, errorMessage } from '../api/client';
 import Button from '../components/ui/Button';
 import Field from '../components/ui/Field';
@@ -13,6 +14,7 @@ export default function Login() {
     const [error, setError] = useState<string | null>(null);
     const [pending, setPending] = useState(false);
     const { refresh } = useAuth();
+    const getRecaptchaToken = useRecaptcha();
     const navigate = useNavigate();
     const location = useLocation();
     const from = (location.state as { from?: string } | null)?.from ?? '/';
@@ -22,7 +24,8 @@ export default function Login() {
         setError(null);
         setPending(true);
         try {
-            await apiPost('/auth/login', { email, password });
+            const recaptcha_token = await getRecaptchaToken('login');
+            await apiPost('/auth/login', { email, password, recaptcha_token });
             await refresh();
             navigate(from, { replace: true });
         } catch (err) {
