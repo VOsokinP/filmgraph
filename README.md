@@ -9,27 +9,34 @@ frontend, and **MySQL 8**, deployed to AWS EC2 behind Nginx over TLS.
 **Live: <https://filmgraph.vosokin.dev>** - browsing needs no account. Registering takes a few
 seconds and is only required to check out.
 
+![The FilmGraph movie list, filtered by a title search: 105 matches, an active filter chip, sortable columns, genre tags, cast cross-links and per-row add-to-cart](docs/screenshot-movie-list.png)
+
+## Highlights
+
+- **Search is 18x faster than it started.** Median 73 ms to 4 ms, after profiling showed the
+  predicate I set out to optimise was 3% of the request and a per-request aggregate over the whole
+  cast table was 95%.
+- **Batch XML import at 45,278 rows/sec**, streaming with `lxml.iterparse` under bounded memory
+  (0.2 MB of parser state for 12.3 MB of input) and writing in batches of 1,000.
+- **131 backend tests against a real MySQL schema**, plus 7 frontend tests, running in GitHub
+  Actions on every push. Non-trivial tests are mutation checked: the source is broken deliberately
+  and the suite confirmed to fail.
+- **Security is specific, not decorative.** Timing-equalised login, per-IP rate limits in separate
+  zones for login and registration, reCAPTCHA v3 that distinguishes a bot verdict from an
+  unreachable verifier, and 404-not-403 on another user's order.
+- **Deployed and public over TLS**, Nginx and systemd on EC2, with a redeploy runbook whose steps
+  exist because each one has failed at least once.
+
 ## Features
 
 **Browsing is public; an account is only needed to check out.** Visitors search, browse and fill a
 cart anonymously, and are asked to register or log in at payment. The cart survives that transition,
 since it lives in a signed session cookie rather than a table.
 
-**Accounts** - self-serve registration with bcrypt-hashed passwords, and a JWT issued in an httpOnly
-cookie and verified on every request. Both auth endpoints are rate limited at the edge and verified
-with **reCAPTCHA v3**, which is invisible and score-based, so a visitor never sees a challenge.
+### Search and browse
 
-The verifier separates two things that are easy to conflate. Google returning *"this is a bot"* is a
-verdict and is enforced. Google being unreachable or slow is not a verdict, so the request is allowed
-and logged: a demo should not be unreachable because a third party is, and the rate limit is still
-standing behind it. Setting the score threshold to `0` runs it in log-only mode, which is how you
-watch real scores before enforcing anything. Failed logins return one generic message for both
-unknown-email and wrong-password, and the miss path runs a dummy hash verification so response time
-doesn't leak which emails are registered. Passwords are capped at 72 **bytes**, the point past which
-bcrypt silently ignores input.
-
-**Search** - by title, year, director, or star, combined with AND logic, plus a title box in the
-header that works from any page. Browse by genre or by title's first letter.
+By title, year, director, or star, combined with AND logic, plus a title box in the header that
+works from any page. Browse by genre or by title's first letter.
 
 Title, director and star name are matched with **MySQL FULLTEXT** indexes rather than
 `LIKE '%term%'`, which cannot use an index and scanned 60,000 star names on every search. Terms
@@ -39,25 +46,56 @@ starting with a stopword findable.
 
 Median search latency went **73 ms to 4 ms**, of which roughly 9x came from removing a per-request
 aggregate over the whole cast table that profiling found was 95% of the request, and 2x from the
-FULLTEXT indexes themselves. Method and per-query numbers are recorded outside this repo.
+FULLTEXT indexes themselves. Both figures are medians over repeated runs against the full dataset,
+not single timings.
 
-**Movie list** - sortable by title, year, rating, or price in either direction, with a stable
-secondary sort and prev/next pagination. Page size is clamped server-side to a fixed allowlist, and
-the response reports the limit actually applied rather than the one requested.
+### Movie list and detail pages
 
-**Detail pages** - a movie's full genre and cast list, an actor's full filmography sorted by year,
-cross-linked in both directions. Per-movie genres and stars are fetched in a fixed number of queries
-using `ROW_NUMBER() OVER (PARTITION BY ...)` rather than one query per row.
+Sortable by title, year, rating, or price in either direction, with a stable secondary sort and
+prev/next pagination. Page size is clamped server-side to a fixed allowlist, and the response
+reports the limit actually applied rather than the one requested.
 
-**Cart and checkout** - cart state lives in a signed session cookie. Registration issues each
-account a demo card, which checkout prefills read-only, so nobody has to invent card details and the
-card check stays a real per-user match rather than a formality. Checkout writes a real `orders` row
-plus one `sales` line item per movie, in a transaction that rolls back if any insert fails. Payment
-is mocked; no real processor.
+A movie's page carries its full genre and cast list; an actor's carries their full filmography
+sorted by year, cross-linked in both directions. Per-movie genres and stars are fetched in a fixed
+number of queries using `ROW_NUMBER() OVER (PARTITION BY ...)` rather than one query per row.
 
-**Order history** - a profile page listing past orders with their films, each linking back to the
-movie. Orders are scoped to their owner, and another customer's order returns 404 rather than 403,
-which would confirm it exists.
+### Cart, checkout and order history
+
+Cart state lives in a signed session cookie. Registration issues each account a demo card, which
+checkout prefills read-only, so nobody has to invent card details and the card check stays a real
+per-user match rather than a formality. Checkout writes a real `orders` row plus one `sales` line
+item per movie, in a transaction that rolls back if any insert fails. Payment is mocked; no real
+processor.
+
+A profile page lists past orders with their films, each linking back to the movie. Orders are scoped
+to their owner, and another customer's order returns 404 rather than 403, which would confirm it
+exists.
+
+### Accounts and abuse controls
+
+Self-serve registration with bcrypt-hashed passwords, and a JWT issued in an httpOnly, `Secure`,
+`SameSite=Lax` cookie and verified on every request. Both auth endpoints are rate limited at the
+edge in separate Nginx zones, so exhausting one cannot lock out the other, and both are verified
+with **reCAPTCHA v3**, which is invisible and score-based, so a visitor never sees a challenge.
+
+Failed logins return one generic message for both unknown-email and wrong-password, and the miss
+path runs a dummy hash verification so response time doesn't leak which emails are registered.
+Passwords are capped at 72 **bytes**, the point past which bcrypt silently ignores input.
+
+<details>
+<summary>Why the reCAPTCHA verifier treats two failures differently</summary>
+
+Google returning *"this is a bot"* is a verdict, and it is enforced. Google being unreachable or
+slow is **not** a verdict, so the request is allowed and logged: a demo should not become
+unreachable because a third party is, and the per-IP rate limit is still standing behind it.
+Collapsing the two would mean a Google outage locks every visitor out of a site that is working
+perfectly.
+
+Setting the score threshold to `0` runs the whole thing in log-only mode, which is how you watch
+real scores on real traffic before enforcing anything. This deployment ran that way first, saw
+legitimate traffic scoring 0.9, and only then raised the threshold to 0.5.
+
+</details>
 
 ## Tech Stack
 
@@ -69,138 +107,8 @@ which would confirm it exists.
 | Tests / CI | pytest against a real MySQL schema, Vitest + MSW on the frontend, GitHub Actions |
 | Containers | Docker multi-stage build, Compose stack for API + MySQL 8 |
 | Batch import | lxml streaming parser, CLI loader |
-| Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers |
+| Deployment | AWS EC2 (Ubuntu), Nginx, systemd, Gunicorn managing Uvicorn workers, Let's Encrypt TLS |
 
-
-## Getting Started
-
-Two paths. Docker is faster and needs nothing installed but Docker itself; the local install is
-what you want if you're going to work on the code.
-
-## Option A - Docker (API + database)
-
-```bash
-docker compose up --build
-```
-
-Starts MySQL 8 with a persistent volume, waits for its healthcheck, applies `alembic upgrade head`,
-and serves the API on <http://localhost:8000> (docs at `/docs`). MySQL is published on **3307** so
-it won't collide with a local MySQL on 3306.
-
-`backend/app` is mounted into the container and uvicorn runs with `--reload`, so editing backend
-source takes effect immediately. **Changing dependencies or migrations still needs `--build`**,
-since those are baked into the image.
-
-Seed data isn't loaded automatically. Download it (step 3 below), then:
-
-```bash
-{ echo "SET autocommit=0; SET foreign_key_checks=0; START TRANSACTION;"; \
-  cat backend/db/movie-data.sql; \
-  echo "COMMIT;"; } | docker compose exec -T db mysql -u appuser -pdevpass moviedb
-```
-
-One transaction instead of ~174k autocommits: far faster, and all-or-nothing, so an interrupted
-load rolls back rather than leaving a half-populated database.
-
-```bash
-docker compose logs -f backend   # follow the API
-docker compose down              # stop, keep the data
-docker compose down -v           # stop and wipe the database volume
-```
-
-The frontend isn't containerized - run it with `npm run dev` (step 4). Compose ships dev-only
-default secrets so a clean clone needs no setup; production injects real values through the
-environment.
-
-## Option B - Local install
-
-Requires Python ≥3.11, Node ≥20, and MySQL 8.
-
-### 1. Database
-
-```sql
-CREATE DATABASE moviedb CHARACTER SET utf8mb4;
-CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'password';
-GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
-```
-
-### 2. Backend
-
-```bash
-cd backend
-pip install -e .
-cp .env.example .env        # then fill in the values below
-alembic upgrade head        # the only supported way to build the schema
-```
-
-`.env` needs at minimum:
-
-```
-DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
-JWT_SECRET_KEY=<python -c "import secrets; print(secrets.token_urlsafe(48))">
-SESSION_SECRET_KEY=<generate a second, different one>
-```
-
-Generate the two secrets separately - they sign different things (identity vs. cart session)
-
-### 3. Seed data
-
-`movie-data.sql` is not in the repo. Download it from
-[Releases](https://github.com/VOsokinP/FilmGraph/releases/download/v1.0-seed-data/movie-data.sql),
-place it at `backend/db/movie-data.sql`, then:
-
-```bash
-mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
-```
-
-The seed data contains **no accounts**: customers and their cards come from registration, so a
-freshly seeded database starts empty and the first visitor registers.
-
-A clean exit code doesn't prove every row landed - check one table before trusting the load:
-
-```bash
-mysql -u appuser -p moviedb -e "SELECT COUNT(*) FROM movies;"   # expect 9052
-```
-
-Full per-table counts are in [`DEPLOYMENT.md`](./DEPLOYMENT.md) step 5.
-
-### 4. Frontend
-
-```bash
-cd frontend
-npm install
-```
-
-### 5. Run
-
-Two terminals:
-
-```bash
-cd backend  && uvicorn app.main:app --reload --port 8000   # API + docs at /docs
-cd frontend && npm run dev                                  # http://localhost:5173
-```
-
-CORS for the Vite dev origin is already configured in `app/main.py`.
-
-## Loading more data
-
-`backend/etl/` is a batch importer for the [Stanford InfoLab movie
-dataset](http://infolab.stanford.edu/pub/movies/), a separate multi-file XML source. It is a local
-tool, not part of deployment.
-
-```bash
-pip install -e ".[etl]"          # lxml; not installed in production
-cd backend/etl/data
-curl -O http://infolab.stanford.edu/pub/movies/{mains243.xml,casts124.xml,actors63.xml}
-cd ../.. && python -m etl.load etl/data --dry-run    # parse and report, write nothing
-python -m etl.load etl/data
-```
-
-Streams with `lxml.iterparse` and writes in batches of 1,000, deduplicating against rows already in
-the database so a re-run inserts nothing. The source is inconsistent, so every rejected record is
-counted and sampled in the run report, and the judgment calls are explicit: cast members missing
-from `actors63.xml` become stars with a null birth year rather than being dropped, and Stanford
-genre codes map onto the existing names (`Dram` to Drama), unrecognised ones passing through.
 
 ## Tests
 
@@ -210,9 +118,11 @@ pip install -e ".[dev,etl]"
 pytest -q
 ```
 
+**131 backend tests and 7 frontend tests**, all green in CI.
+
 `lxml` lives in the `etl` extra rather than the runtime dependencies, so production never installs a
-parser it does not import. Without it the ETL tests skip cleanly (32 passed, 1 skipped) instead of
-failing to import.
+parser it does not import. Without it the ETL tests skip cleanly, via `pytest.importorskip`, instead
+of failing to import.
 
 Tests run against a **real MySQL schema**, not a mock or SQLite - the app leans on MySQL-specific
 SQL, so anything else would be testing different code than production runs. `conftest.py` redirects
@@ -245,8 +155,12 @@ Both run on Ubuntu from a clean checkout.
 ## Deployment
 
 One AWS EC2 instance (`t3.micro`, Ubuntu 24.04): Nginx serves the built frontend and reverse-proxies
-`/api/...` to Gunicorn/Uvicorn on `127.0.0.1:8000`.
-The backend runs under systemd and restarts on crash or reboot.
+`/api/...` to Gunicorn/Uvicorn on `127.0.0.1:8000`. The backend runs under systemd and restarts on
+crash or reboot.
+
+The app is served from its own subdomain rather than a path, so each project on this domain gets a
+separate origin and therefore a separate cookie jar: an XSS in one cannot read another's session.
+The apex serves a static landing page.
 
 Full walkthrough and the redeploy runbook are in [`DEPLOYMENT.md`](./DEPLOYMENT.md). The files
 under `deploy/` are the real ones from the live server rather than templates, so they hard-code a
@@ -257,6 +171,136 @@ value.
 TLS comes from Let's Encrypt via certbot, with the HTTP→HTTPS redirect and automatic renewal.
 `.dev` is on the browser HSTS preload list, so plain HTTP to this host is refused by the browser
 before a request is ever made.
+
+## Getting Started
+
+Two paths. Docker is faster and needs nothing installed but Docker itself; the local install is
+what you want if you're going to work on the code.
+
+### Option A - Docker (API + database)
+
+```bash
+docker compose up --build
+```
+
+Starts MySQL 8 with a persistent volume, waits for its healthcheck, applies `alembic upgrade head`,
+and serves the API on <http://localhost:8000> (docs at `/docs`). MySQL is published on **3307** so
+it won't collide with a local MySQL on 3306.
+
+`backend/app` is mounted into the container and uvicorn runs with `--reload`, so editing backend
+source takes effect immediately. **Changing dependencies or migrations still needs `--build`**,
+since those are baked into the image.
+
+Seed data isn't loaded automatically. Download it (Option B, step 3), then:
+
+```bash
+{ echo "SET autocommit=0; SET foreign_key_checks=0; START TRANSACTION;"; \
+  cat backend/db/movie-data.sql; \
+  echo "COMMIT;"; } | docker compose exec -T db mysql -u appuser -pdevpass moviedb
+```
+
+One transaction instead of ~174k autocommits: far faster, and all-or-nothing, so an interrupted
+load rolls back rather than leaving a half-populated database.
+
+```bash
+docker compose logs -f backend   # follow the API
+docker compose down              # stop, keep the data
+docker compose down -v           # stop and wipe the database volume
+```
+
+The frontend isn't containerized - run it with `npm run dev` (step 4). Compose ships dev-only
+default secrets so a clean clone needs no setup; production injects real values through the
+environment.
+
+### Option B - Local install
+
+Requires Python ≥3.11, Node ≥20, and MySQL 8.
+
+#### 1. Database
+
+```sql
+CREATE DATABASE moviedb CHARACTER SET utf8mb4;
+CREATE USER 'appuser'@'localhost' IDENTIFIED BY 'password';
+GRANT ALL PRIVILEGES ON moviedb.* TO 'appuser'@'localhost';
+```
+
+#### 2. Backend
+
+```bash
+cd backend
+pip install -e .
+cp .env.example .env        # then fill in the values below
+alembic upgrade head        # the only supported way to build the schema
+```
+
+`.env` needs at minimum:
+
+```
+DATABASE_URL=mysql+pymysql://appuser:password@localhost:3306/moviedb
+JWT_SECRET_KEY=<python -c "import secrets; print(secrets.token_urlsafe(48))">
+SESSION_SECRET_KEY=<generate a second, different one>
+```
+
+Generate the two secrets separately - they sign different things (identity vs. cart session)
+
+#### 3. Seed data
+
+`movie-data.sql` is not in the repo. Download it from
+[Releases](https://github.com/VOsokinP/FilmGraph/releases/download/v1.0-seed-data/movie-data.sql),
+place it at `backend/db/movie-data.sql`, then:
+
+```bash
+mysql -u appuser -p --default-character-set=utf8mb4 moviedb < db/movie-data.sql
+```
+
+The seed data contains **no accounts**: customers and their cards come from registration, so a
+freshly seeded database starts empty and the first visitor registers.
+
+A clean exit code doesn't prove every row landed - check one table before trusting the load:
+
+```bash
+mysql -u appuser -p moviedb -e "SELECT COUNT(*) FROM movies;"   # expect 9052
+```
+
+Full per-table counts are in [`DEPLOYMENT.md`](./DEPLOYMENT.md) step 5.
+
+#### 4. Frontend
+
+```bash
+cd frontend
+npm install
+```
+
+#### 5. Run
+
+Two terminals:
+
+```bash
+cd backend  && uvicorn app.main:app --reload --port 8000   # API + docs at /docs
+cd frontend && npm run dev                                  # http://localhost:5173
+```
+
+CORS for the Vite dev origin is already configured in `app/main.py`.
+
+## Loading more data
+
+`backend/etl/` is a batch importer for the [Stanford InfoLab movie
+dataset](http://infolab.stanford.edu/pub/movies/), a separate multi-file XML source. It is a local
+tool, not part of deployment.
+
+```bash
+pip install -e ".[etl]"          # lxml; not installed in production
+cd backend/etl/data
+curl -O http://infolab.stanford.edu/pub/movies/{mains243.xml,casts124.xml,actors63.xml}
+cd ../.. && python -m etl.load etl/data --dry-run    # parse and report, write nothing
+python -m etl.load etl/data
+```
+
+Streams with `lxml.iterparse` and writes in batches of 1,000, deduplicating against rows already in
+the database so a re-run inserts nothing. The source is inconsistent, so every rejected record is
+counted and sampled in the run report, and the judgment calls are explicit: cast members missing
+from `actors63.xml` become stars with a null birth year rather than being dropped, and Stanford
+genre codes map onto the existing names (`Dram` to Drama), unrecognised ones passing through.
 
 ## Project Layout
 
@@ -277,7 +321,7 @@ frontend/src/
   auth/           # AuthContext + AuthProvider + ProtectedRoute
   cart/           # CartCountContext + CartCountProvider
   api/client.ts
-deploy/           # systemd unit + nginx config
+deploy/           # systemd unit + nginx configs (http block, app site, apex landing)
 backend/Dockerfile        # multi-stage: build venv, ship runtime only
 docker-compose.yml        # local stack - API + MySQL 8
 ```
@@ -297,4 +341,4 @@ docker-compose.yml        # local stack - API + MySQL 8
 - [x] Streaming XML parse feeding batched inserts (lxml), 45k rows/sec
 - [x] MySQL FULLTEXT search replacing `LIKE` matching, 73 ms to 4 ms median
 - [x] Docker - multi-stage image (334 MB runtime, down from 771 MB) + Compose stack
-- [ ] HTTPS and a persistent public URL
+- [x] HTTPS with a persistent public URL, Let's Encrypt + certbot, HSTS, Secure cookies
