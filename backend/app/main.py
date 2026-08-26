@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -5,6 +7,11 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api import auth, cards, cart, checkout, genres, movies, orders, stars
 from app.config import settings
 from app.dependencies import get_current_customer_id
+
+logging.basicConfig(
+    level=settings.log_level.upper(),
+    format="%(levelname)s %(name)s %(message)s",
+)
 
 app = FastAPI(title = "FilmGraph API")
 
