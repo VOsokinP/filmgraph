@@ -15,6 +15,21 @@ export class ApiError extends Error {
 const NETWORK_STATUS = 0;
 const TIMEOUT_STATUS = -1;
 
+function detailToMessage(detail: unknown, status: number): string {
+    if (typeof detail === "string") return detail;
+
+    if (Array.isArray(detail) && detail.length > 0) {
+        const first = detail[0] as { msg?: unknown; loc?: unknown };
+        if (typeof first.msg === "string") {
+            const path = Array.isArray(first.loc) ? first.loc : [];
+            const field = path.length > 1 ? path[path.length - 1] : undefined;
+            return typeof field === "string" ? `${field}: ${first.msg}` : first.msg;
+        }
+    }
+
+    return statusMessage(status);
+}
+
 function statusMessage(status: number): string {
     if (status === 404) return "We couldn't find what you were looking for.";
     if (status === 401 || status === 403) return "You don't have access to this.";
@@ -68,7 +83,7 @@ async function request<T>(
     if (!response.ok) {
         const body = await response.json().catch(() => null);
         const detail = (body as { detail?: unknown } | null)?.detail;
-        const message = typeof detail === "string" ? detail : statusMessage(response.status);
+        const message = detailToMessage(detail, response.status);
         if (redirectOn401 && response.status === 401 && window.location.pathname !== "/login") {
             window.location.href = "/login";
         }
