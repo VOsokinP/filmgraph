@@ -56,6 +56,10 @@ Starts MySQL 8 with a persistent volume, waits for its healthcheck, applies `ale
 and serves the API on <http://localhost:8000> (docs at `/docs`). MySQL is published on **3307** so
 it won't collide with a local MySQL on 3306.
 
+`backend/app` is mounted into the container and uvicorn runs with `--reload`, so editing backend
+source takes effect immediately. **Changing dependencies or migrations still needs `--build`**,
+since those are baked into the image.
+
 Seed data isn't loaded automatically. Download it (step 3 below), then:
 
 ```bash

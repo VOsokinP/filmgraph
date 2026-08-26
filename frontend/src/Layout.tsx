@@ -6,11 +6,12 @@ import { CartCountProvider } from './cart/CartCountProvider';
 import { useCartCount } from './cart/CartCountContext';
 import { apiPost } from './api/client';
 import Button from './components/ui/Button';
+import HeaderSearch from './components/HeaderSearch';
 import { CartIcon, FilmIcon, LogOutIcon } from './components/ui/Icons';
 
 function Header() {
   const { customer, loading, refresh } = useAuth();
-  const { count } = useCartCount();
+  const { count, refreshCount } = useCartCount();
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutFailed, setLogoutFailed] = useState(false);
   const navigate = useNavigate();
@@ -27,6 +28,7 @@ function Header() {
       setLoggingOut(false);
     }
     await refresh();
+    await refreshCount();
     navigate('/');
   };
 
@@ -45,24 +47,16 @@ function Header() {
           <NavLink to="/" end className={navClass}>
             Movies
           </NavLink>
-          <NavLink to="/cart" className={navClass}>
-            <CartIcon size={16} />
-            Cart
-            {count > 0 && (
-              <span className="badge">
-                {count}
-                <span className="visually-hidden"> items in cart</span>
-              </span>
-            )}
-          </NavLink>
         </nav>
+
+        <HeaderSearch />
 
         <div className="app-header__user">
           {loading ? null : customer ? (
             <>
-              <Link to="/profile" className="app-header__name">
-                {customer.firstName} {customer.lastName}
-              </Link>
+              <NavLink to="/profile" className={navClass}>
+                My Profile
+              </NavLink>
               <Button variant="ghost" size="sm" onClick={logout} pending={loggingOut}>
                 <LogOutIcon size={14} />
                 Log out
@@ -83,6 +77,17 @@ function Header() {
               </Link>
             </>
           )}
+
+          <NavLink to="/cart" className={navClass}>
+            <CartIcon size={16} />
+            Cart
+            {count > 0 && (
+              <span className="badge">
+                {count}
+                <span className="visually-hidden"> items in cart</span>
+              </span>
+            )}
+          </NavLink>
         </div>
       </div>
     </header>

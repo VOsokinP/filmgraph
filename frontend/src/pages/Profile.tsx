@@ -20,6 +20,16 @@ interface Order {
     items: OrderLine[];
 }
 
+function formatOrderDate(isoDate: string): string {
+    const asLocalMidnight = new Date(`${isoDate}T00:00:00`);
+    if (Number.isNaN(asLocalMidnight.getTime())) return isoDate;
+    return asLocalMidnight.toLocaleDateString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+    });
+}
+
 export default function Profile() {
     const { customer } = useAuth();
     const [orders, setOrders] = useState<Order[] | null>(null);
@@ -78,17 +88,10 @@ export default function Profile() {
                 <div className="stack-sm">
                     {orders.map((order) => (
                         <section className="panel order" key={order.id}>
-                            <div className="order__head">
-                                <div>
-                                    <h2 className="order__id">Order #{order.id}</h2>
-                                    <p className="order__date">{order.orderDate}</p>
-                                </div>
-                                <span className="order__total">${order.total.toFixed(2)}</span>
-                            </div>
                             <ul className="order__items">
                                 {order.items.map((item) => (
                                     <li key={item.movie_id}>
-                                        <Link className="link-quiet" to={`/movies/${item.movie_id}`}>
+                                        <Link className="order__title" to={`/movies/${item.movie_id}`}>
                                             {item.title}
                                         </Link>
                                         <span className="order__qty">
@@ -97,6 +100,12 @@ export default function Profile() {
                                     </li>
                                 ))}
                             </ul>
+                            <div className="order__foot">
+                                <span className="order__date">
+                                    {formatOrderDate(order.orderDate)}
+                                </span>
+                                <span className="order__total">${order.total.toFixed(2)}</span>
+                            </div>
                         </section>
                     ))}
                 </div>

@@ -25,11 +25,15 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-jwt-secret-not-for-production}
       SESSION_SECRET_KEY: ${SESSION_SECRET_KEY:-dev-only-session-secret-not-for-production}
       RECAPTCHA_ENABLED: "false"
+      PYTHONPATH: /app
     depends_on:
       db:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      - ./backend/app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 volumes:
   db-data:

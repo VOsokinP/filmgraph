@@ -77,5 +77,17 @@ def test_anonymous_cart_survives_logging_in(client):
     assert after["total"] == before["total"]
 
 
+def test_logout_empties_the_cart(auth_client):
+    """A cart left behind at logout would be inherited by the next person on this browser."""
+    auth_client.post("/api/cart/items", json={"movie_id": "tt0000001", "delta": 2})
+    assert auth_client.get("/api/cart").json()["items"]
+
+    auth_client.post("/api/auth/logout")
+
+    after = auth_client.get("/api/cart").json()
+    assert after["items"] == []
+    assert after["total"] == 0.0
+
+
 def test_health_is_open(client):
     assert client.get("/health").status_code == 200
