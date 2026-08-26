@@ -26,7 +26,7 @@ def _issue_session_cookie(response: Response, customer_id: int) -> None:
 
 @router.post("/login", response_model=CustomerOut)
 def login(payload: LoginRequest, response: Response, conn = Depends(get_db)):
-    verify_recaptcha(payload.recaptcha_token)
+    verify_recaptcha(payload.recaptcha_token, action="login")
     customer = authenticate_customer(conn, payload.email, payload.password)
     if not customer:
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -36,7 +36,7 @@ def login(payload: LoginRequest, response: Response, conn = Depends(get_db)):
 
 @router.post("/register", response_model=CustomerOut, status_code=201)
 def register(payload: RegisterRequest, response: Response, conn = Depends(get_db)):
-    verify_recaptcha(payload.recaptcha_token)
+    verify_recaptcha(payload.recaptcha_token, action="register")
     customer = create_customer(
         conn,
         email=payload.email,
