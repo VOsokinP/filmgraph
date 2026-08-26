@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     jwt_algorithm : str = "HS256"
     jwt_expire_minutes : int = 60*24*7
     session_secret_key : str
+    cookie_secure : bool = False
     recaptcha_enabled : bool = False
     recaptcha_secret_key : str = ""
     recaptcha_min_score : float = 0.5
